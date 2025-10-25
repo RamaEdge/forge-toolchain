@@ -50,9 +50,9 @@ export DEFAULT_TOOLCHAIN=$(jq -r '.build.toolchain.default' "$BUILD_JSON")
 # Toolchain versions
 export BINUTILS_VERSION=$(jq -r '.build.toolchain.versions.binutils' "$BUILD_JSON")
 export GCC_VERSION=$(jq -r '.build.toolchain.versions.gcc' "$BUILD_JSON")
-export MUSL_VERSION=$(jq -r '.build.toolchain.versions.musl' "$BUILD_JSON")
 export GLIBC_VERSION=$(jq -r '.build.toolchain.versions.glibc' "$BUILD_JSON")
 export MUSL_CROSS_MAKE_VERSION=$(jq -r '.build.toolchain.versions."musl-cross-make"' "$BUILD_JSON")
+export LINUX_VERSION=$(jq -r '.build.toolchain.versions.linux' "$BUILD_JSON")
 
 # Repository configuration
 export REPO_NAME=$(jq -r '.build.repository.name' "$BUILD_JSON")

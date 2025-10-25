@@ -114,12 +114,17 @@ download_package() {
 }
 
 # Download required toolchain packages
+# Note: musl toolchain uses musl-cross-make which handles all dependencies internally
+# glibc toolchain requires: binutils, gcc, glibc, linux (for headers)
+
+# musl-cross-make (for musl toolchain)
+download_package "musl-cross-make" "musl-cross-make-0.9.11.tar.gz" || log_warning "musl-cross-make package not available"
+
+# glibc toolchain packages (for glibc toolchain)
 download_package "binutils" "binutils-2.42.tar.xz" || log_warning "binutils package not available"
 download_package "gcc" "gcc-13.2.0.tar.xz" || log_warning "gcc package not available"
-download_package "musl" "musl-1.2.4.tar.gz" || log_warning "musl package not available"
 download_package "glibc" "glibc-2.38.tar.xz" || log_warning "glibc package not available"
-download_package "linux-headers" "linux-6.6.0.tar.xz" || log_warning "linux-headers package not available"
-download_package "musl-cross-make" "musl-cross-make-0.9.11.tar.gz" || log_warning "musl-cross-make package not available"
+download_package "linux" "linux-6.6.0.tar.xz" || log_warning "linux package not available"
 
 # Verify package integrity if checksums are available
 if [[ -f "$PACKAGES_REPO_DIR/metadata/checksums.json" ]]; then

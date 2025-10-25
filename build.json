@@ -25,16 +25,16 @@
       "versions": {
         "binutils": "2.42",
         "gcc": "13.2.0",
-        "musl": "1.2.4",
         "glibc": "2.38",
-        "musl-cross-make": "0.9.11"
+        "musl-cross-make": "0.9.11",
+        "linux": "6.6.0"
       }
     },
     "repository": {
       "name": "forgeos-toolchain",
       "version": "0.1.0",
       "arch": "aarch64",
-      "forge_packages_url": "https://github.com/your-org/forge-packages.git"
+      "forge_packages_url": "https://github.com/ramaedge/forge-packages.git"
     },
     "security": {
       "signing_key_type": "minisign",
