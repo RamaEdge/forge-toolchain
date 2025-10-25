@@ -57,8 +57,6 @@ export LINUX_VERSION=$(jq -r '.build.packages.linux.version' "$BUILD_JSON")
 # Repository configuration
 export REPO_NAME=$(jq -r '.build.repository.name' "$BUILD_JSON")
 export REPO_VERSION=$(jq -r '.build.repository.version' "$BUILD_JSON")
-export REPO_ARCH=$(jq -r '.build.repository.arch' "$BUILD_JSON")
-export FORGE_OS_URL=$(jq -r '.build.repository.forge_os_url' "$BUILD_JSON")
 export FORGE_PACKAGES_URL=$(jq -r '.build.repository.forge_packages_url' "$BUILD_JSON")
 
 # Security configuration

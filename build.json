@@ -16,7 +16,6 @@
     "repository": {
       "name": "forgeos-toolchain",
       "version": "0.1.0",
-      "forge_os_url": "https://github.com/ramaedge/forge-os.git",
       "forge_packages_url": "https://github.com/ramaedge/forge-packages.git"
     },
     "packages": {
