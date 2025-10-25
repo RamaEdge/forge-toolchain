@@ -71,6 +71,7 @@
       "name": "forgeos-toolchain",
       "version": "0.1.0",
       "arch": "aarch64",
+      "forge_os_url": "https://github.com/ramaedge/forge-os.git",
       "forge_packages_url": "https://github.com/ramaedge/forge-packages.git"
     },
     "security": {
