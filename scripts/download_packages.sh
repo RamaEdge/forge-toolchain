@@ -175,7 +175,8 @@ cat > "$LOCAL_PACKAGES_DIR/package-info.txt" << EOF
 # Configuration: build.json
 
 ## Package Source
-- Repository: $FORGE_PACKAGES_URL
+- ForgeOS main repository: $FORGE_OS_URL
+- Forge-packages repository: $FORGE_PACKAGES_URL
 - Local directory: $LOCAL_PACKAGES_DIR
 - Forge-packages directory: $PACKAGES_REPO_DIR
 - Configuration file: $BUILD_JSON
@@ -200,9 +201,11 @@ To use these packages in toolchain builds:
 
 ## Integration
 This package system integrates with:
-- ForgeOS main repository
-- ForgeOS toolchain repository
+- ForgeOS main repository: $FORGE_OS_URL
+- ForgeOS toolchain repository: $REPO_NAME v$REPO_VERSION
+- ForgeOS packages repository: $FORGE_PACKAGES_URL
 - ForgeOS profiles repository
+- ForgeOS security repository
 - CI/CD pipelines
 
 ## Configuration
