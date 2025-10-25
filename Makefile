@@ -39,7 +39,7 @@ export SOURCE_DATE_EPOCH
 # =============================================================================
 
 # Default target
-all: toolchain
+all: download-packages toolchain
 
 # Build specific toolchain
 toolchain: check-dependencies
@@ -76,6 +76,22 @@ test: toolchain
 	@echo "Testing $(TOOLCHAIN) toolchain..."
 	@./scripts/test_toolchain.sh $(ARCH) $(TOOLCHAIN) $(ARTIFACTS_DIR)
 	@echo "Toolchain test complete"
+
+# =============================================================================
+# PACKAGE MANAGEMENT
+# =============================================================================
+
+# Download packages from forge-packages
+download-packages:
+	@echo "Downloading packages from forge-packages..."
+	@./scripts/download_packages.sh
+	@echo "Package download complete"
+
+# Clean downloaded packages
+clean-packages:
+	@echo "Cleaning downloaded packages..."
+	@rm -rf packages/downloads
+	@echo "Downloaded packages cleaned"
 
 # =============================================================================
 # DEPENDENCY CHECKS
@@ -116,6 +132,8 @@ help:
 	@echo "  all-toolchains   Build all toolchains"
 	@echo "  verify          Build and verify toolchain"
 	@echo "  test            Build and test toolchain"
+	@echo "  download-packages  Download packages from forge-packages"
+	@echo "  clean-packages  Clean downloaded packages"
 	@echo "  clean           Clean build artifacts"
 	@echo "  clean-all       Clean all artifacts"
 	@echo "  check-dependencies  Check build dependencies"
@@ -134,6 +152,7 @@ help:
 	@echo "  make toolchain ARCH=x86_64        # Build musl toolchain for x86_64"
 	@echo "  make toolchain TOOLCHAIN=gnu      # Build glibc toolchain for aarch64"
 	@echo "  make all-toolchains               # Build all toolchains"
+	@echo "  make download-packages            # Download packages from forge-packages"
 	@echo "  make verify                       # Build and verify toolchain"
 	@echo "  make test                         # Build and test toolchain"
 
@@ -149,4 +168,4 @@ config:
 	@echo "  Output directory: $(OUTPUT_DIR)"
 	@echo "  Source date epoch: $(SOURCE_DATE_EPOCH)"
 
-.PHONY: all toolchain all-toolchains clean clean-all verify test check-dependencies linux macos help config
+.PHONY: all toolchain all-toolchains clean clean-all verify test download-packages clean-packages check-dependencies linux macos help config

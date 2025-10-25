@@ -84,16 +84,32 @@ if [[ -f "$TOOLCHAIN_OUTPUT/bin/$CROSS_COMPILE"gcc ]] && \
     exit 0
 fi
 
-# Download musl-cross-make if not present
+# Check for forge-packages integration
+PACKAGES_DIR="${PACKAGES_DIR:-$PROJECT_ROOT/packages/downloads}"
+MUSL_CROSS_MAKE_SOURCE="$PACKAGES_DIR/musl-cross-make-$MUSL_CROSS_MAKE_VERSION.tar.gz"
 MUSL_CROSS_MAKE_DIR="$BUILD_DIR/musl-cross-make-$MUSL_CROSS_MAKE_VERSION"
+
+# Download musl-cross-make if not present
 if [[ ! -d "$MUSL_CROSS_MAKE_DIR" ]]; then
-    log_info "Downloading musl-cross-make $MUSL_CROSS_MAKE_VERSION..."
-    cd "$BUILD_DIR"
-    if ! curl -L "https://github.com/richfelker/musl-cross-make/archive/v$MUSL_CROSS_MAKE_VERSION.tar.gz" | tar -xz; then
-        log_error "Failed to download musl-cross-make"
-        exit 1
+    if [[ -f "$MUSL_CROSS_MAKE_SOURCE" ]]; then
+        log_info "Using musl-cross-make from forge-packages..."
+        cd "$BUILD_DIR"
+        if tar -xzf "$MUSL_CROSS_MAKE_SOURCE"; then
+            log_success "musl-cross-make extracted from forge-packages"
+        else
+            log_error "Failed to extract musl-cross-make from forge-packages"
+            exit 1
+        fi
+    else
+        log_info "Downloading musl-cross-make $MUSL_CROSS_MAKE_VERSION from internet..."
+        cd "$BUILD_DIR"
+        if ! curl -L "https://github.com/richfelker/musl-cross-make/archive/v$MUSL_CROSS_MAKE_VERSION.tar.gz" | tar -xz; then
+            log_error "Failed to download musl-cross-make"
+            log_info "Consider setting up forge-packages for offline builds"
+            exit 1
+        fi
+        log_success "musl-cross-make downloaded from internet"
     fi
-    log_success "musl-cross-make downloaded"
 fi
 
 # Create musl-cross-make configuration
