@@ -1,3 +1,15 @@
+# ForgeOS Toolchain Build Artifacts
+# ==================================
+
+# Build directories (temporary compilation only)
+build/
+output/
+
+# Artifacts directory (ignore build outputs, but keep structure)
+artifacts/
+!artifacts/.gitkeep
+
+# Archive files
 *.tar
 *.tar.*
 *.jar
@@ -6,9 +18,33 @@
 *.deb
 *.zip
 *.tgz
+*.gz
+*.bz2
+*.xz
+
+# Log files
 *.log
 *.log.*
 *.sig
+*.asc
 
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Legacy directories
 pkg/
 src/

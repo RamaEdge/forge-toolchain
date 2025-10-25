@@ -6,7 +6,10 @@
 # CONFIGURATION
 # =============================================================================
 
-# Default configuration
+# Load build.json configuration
+# Note: Configuration is loaded via scripts/load_config.sh when needed
+
+# Default configuration (can be overridden)
 ARCH ?= aarch64
 TOOLCHAIN ?= musl
 BUILD_DIR ?= build
