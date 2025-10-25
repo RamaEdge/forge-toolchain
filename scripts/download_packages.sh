@@ -84,6 +84,34 @@ if ! source "$PACKAGES_REPO_DIR/metadata/packages.json" 2>/dev/null; then
     exit 1
 fi
 
+# Load build.json configuration
+BUILD_JSON="$PROJECT_ROOT/build.json"
+if [[ ! -f "$BUILD_JSON" ]]; then
+    log_error "build.json not found at $BUILD_JSON"
+    exit 1
+fi
+
+# Parse toolchain versions from build.json
+if ! command -v jq >/dev/null 2>&1; then
+    log_error "jq is required but not installed"
+    log_info "Install with: sudo apt-get install jq (Ubuntu/Debian)"
+    log_info "Install with: brew install jq (macOS)"
+    exit 1
+fi
+
+BINUTILS_VERSION=$(jq -r '.build.toolchain.versions.binutils' "$BUILD_JSON")
+GCC_VERSION=$(jq -r '.build.toolchain.versions.gcc' "$BUILD_JSON")
+GLIBC_VERSION=$(jq -r '.build.toolchain.versions.glibc' "$BUILD_JSON")
+MUSL_CROSS_MAKE_VERSION=$(jq -r '.build.toolchain.versions."musl-cross-make"' "$BUILD_JSON")
+LINUX_VERSION=$(jq -r '.build.toolchain.versions.linux' "$BUILD_JSON")
+
+log_info "Toolchain versions from build.json:"
+log_info "  binutils: $BINUTILS_VERSION"
+log_info "  gcc: $GCC_VERSION"
+log_info "  glibc: $GLIBC_VERSION"
+log_info "  musl-cross-make: $MUSL_CROSS_MAKE_VERSION"
+log_info "  linux: $LINUX_VERSION"
+
 # Create local packages directory
 LOCAL_PACKAGES_DIR="$PACKAGES_DIR/downloads"
 mkdir -p "$LOCAL_PACKAGES_DIR"
@@ -113,18 +141,26 @@ download_package() {
     fi
 }
 
-# Download required toolchain packages
+# Download required toolchain packages using build.json configuration
 # Note: musl toolchain uses musl-cross-make which handles all dependencies internally
 # glibc toolchain requires: binutils, gcc, glibc, linux (for headers)
 
+log_info "Downloading toolchain packages using build.json configuration..."
+
 # musl-cross-make (for musl toolchain)
-download_package "musl-cross-make" "musl-cross-make-0.9.11.tar.gz" || log_warning "musl-cross-make package not available"
+MUSL_CROSS_MAKE_FILE="musl-cross-make-${MUSL_CROSS_MAKE_VERSION}.tar.gz"
+download_package "musl-cross-make" "$MUSL_CROSS_MAKE_FILE" || log_warning "musl-cross-make package not available"
 
 # glibc toolchain packages (for glibc toolchain)
-download_package "binutils" "binutils-2.42.tar.xz" || log_warning "binutils package not available"
-download_package "gcc" "gcc-13.2.0.tar.xz" || log_warning "gcc package not available"
-download_package "glibc" "glibc-2.38.tar.xz" || log_warning "glibc package not available"
-download_package "linux" "linux-6.6.0.tar.xz" || log_warning "linux package not available"
+BINUTILS_FILE="binutils-${BINUTILS_VERSION}.tar.xz"
+GCC_FILE="gcc-${GCC_VERSION}.tar.xz"
+GLIBC_FILE="glibc-${GLIBC_VERSION}.tar.xz"
+LINUX_FILE="linux-${LINUX_VERSION}.tar.xz"
+
+download_package "binutils" "$BINUTILS_FILE" || log_warning "binutils package not available"
+download_package "gcc" "$GCC_FILE" || log_warning "gcc package not available"
+download_package "glibc" "$GLIBC_FILE" || log_warning "glibc package not available"
+download_package "linux" "$LINUX_FILE" || log_warning "linux package not available"
 
 # Verify package integrity if checksums are available
 if [[ -f "$PACKAGES_REPO_DIR/metadata/checksums.json" ]]; then
@@ -141,11 +177,20 @@ cat > "$LOCAL_PACKAGES_DIR/package-info.txt" << EOF
 # ForgeOS Toolchain Package Information
 # Generated: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Source: forge-packages repository
+# Configuration: build.json
 
 ## Package Source
 - Repository: $FORGE_PACKAGES_URL
 - Local directory: $LOCAL_PACKAGES_DIR
 - Forge-packages directory: $PACKAGES_REPO_DIR
+- Configuration file: $BUILD_JSON
+
+## Toolchain Versions (from build.json)
+- binutils: $BINUTILS_VERSION
+- gcc: $GCC_VERSION
+- glibc: $GLIBC_VERSION
+- musl-cross-make: $MUSL_CROSS_MAKE_VERSION
+- linux: $LINUX_VERSION
 
 ## Available Packages
 $(ls -la "$LOCAL_PACKAGES_DIR" | grep -v "package-info.txt" | awk '{print $9, $5, $6, $7, $8}')
@@ -162,6 +207,12 @@ This package system integrates with:
 - ForgeOS toolchain repository
 - ForgeOS profiles repository
 - CI/CD pipelines
+
+## Configuration
+Package versions are managed in build.json:
+- Update versions in build.json
+- Re-run download_packages.sh to get new versions
+- All toolchain builds will use the configured versions
 EOF
 
 log_success "Package download complete!"
