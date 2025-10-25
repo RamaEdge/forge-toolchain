@@ -30,6 +30,43 @@
         "linux": "6.6.0"
       }
     },
+    "packages": {
+      "musl-cross-make": {
+        "version": "0.9.11",
+        "filename": "musl-cross-make-0.9.11.tar.gz",
+        "category": "toolchain",
+        "toolchain": "musl",
+        "description": "Cross-compilation toolchain builder for musl"
+      },
+      "binutils": {
+        "version": "2.42",
+        "filename": "binutils-2.42.tar.xz",
+        "category": "toolchain",
+        "toolchain": "gnu",
+        "description": "GNU binary utilities"
+      },
+      "gcc": {
+        "version": "13.2.0",
+        "filename": "gcc-13.2.0.tar.xz",
+        "category": "toolchain",
+        "toolchain": "gnu",
+        "description": "GNU Compiler Collection"
+      },
+      "glibc": {
+        "version": "2.38",
+        "filename": "glibc-2.38.tar.xz",
+        "category": "toolchain",
+        "toolchain": "gnu",
+        "description": "GNU C library"
+      },
+      "linux": {
+        "version": "6.6.0",
+        "filename": "linux-6.6.0.tar.xz",
+        "category": "toolchain",
+        "toolchain": "gnu",
+        "description": "Linux kernel source (for headers)"
+      }
+    },
     "repository": {
       "name": "forgeos-toolchain",
       "version": "0.1.0",
