@@ -127,22 +127,29 @@ fi
 #### From forge-packages
 
 ```bash
-# Download from forge-packages
+# Download from forge-packages (uses build.json configuration)
 ./scripts/download_packages.sh
 
-# Download specific category
-./scripts/download_packages.sh toolchain
+# Download with custom forge-packages URL
+./scripts/download_packages.sh https://github.com/your-org/forge-packages.git
 
-# Download with force update
-./scripts/download_packages.sh --force
+# Download to custom directory
+./scripts/download_packages.sh https://github.com/your-org/forge-packages.git /custom/packages
 ```
 
 **Process**:
 1. **Clone/Update Repository**: Git clone or pull updates
 2. **Load Package Manifest**: Parse packages.json
-3. **Copy Packages**: Copy to local downloads directory
-4. **Verify Integrity**: Check SHA256 checksums
-5. **Create Info File**: Generate package information
+3. **Load build.json Configuration**: Parse toolchain versions
+4. **Copy Packages**: Copy to local downloads directory using configured versions
+5. **Verify Integrity**: Check SHA256 checksums
+6. **Create Info File**: Generate package information with configuration details
+
+**Configuration-Driven Downloads:**
+- Package versions are read from `build.json`
+- No hardcoded versions in the script
+- Easy to update versions by editing `build.json`
+- Consistent version management across all tools
 
 #### From Internet
 
