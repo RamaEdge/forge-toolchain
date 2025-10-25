@@ -43,16 +43,16 @@ export PACKAGES_DIR=$(jq -r '.build.directories.packages' "$BUILD_JSON")
 export DEFAULT_ARCH=$(jq -r '.build.architecture.default' "$BUILD_JSON")
 export SUPPORTED_ARCHS=$(jq -r '.build.architecture.supported[]' "$BUILD_JSON" | tr '\n' ' ')
 
-# Toolchain configuration
-export TOOLCHAIN_TYPES=$(jq -r '.build.toolchain.types[]' "$BUILD_JSON" | tr '\n' ' ')
-export DEFAULT_TOOLCHAIN=$(jq -r '.build.toolchain.default' "$BUILD_JSON")
+# Toolchain configuration (derived from packages)
+export TOOLCHAIN_TYPES=$(jq -r '.build.packages | to_entries[] | .value.toolchain' "$BUILD_JSON" | sort -u | tr '\n' ' ')
+export DEFAULT_TOOLCHAIN="musl"
 
-# Toolchain versions
-export BINUTILS_VERSION=$(jq -r '.build.toolchain.versions.binutils' "$BUILD_JSON")
-export GCC_VERSION=$(jq -r '.build.toolchain.versions.gcc' "$BUILD_JSON")
-export GLIBC_VERSION=$(jq -r '.build.toolchain.versions.glibc' "$BUILD_JSON")
-export MUSL_CROSS_MAKE_VERSION=$(jq -r '.build.toolchain.versions."musl-cross-make"' "$BUILD_JSON")
-export LINUX_VERSION=$(jq -r '.build.toolchain.versions.linux' "$BUILD_JSON")
+# Toolchain versions (derived from packages section)
+export BINUTILS_VERSION=$(jq -r '.build.packages.binutils.version' "$BUILD_JSON")
+export GCC_VERSION=$(jq -r '.build.packages.gcc.version' "$BUILD_JSON")
+export GLIBC_VERSION=$(jq -r '.build.packages.glibc.version' "$BUILD_JSON")
+export MUSL_CROSS_MAKE_VERSION=$(jq -r '.build.packages."musl-cross-make".version' "$BUILD_JSON")
+export LINUX_VERSION=$(jq -r '.build.packages.linux.version' "$BUILD_JSON")
 
 # Repository configuration
 export REPO_NAME=$(jq -r '.build.repository.name' "$BUILD_JSON")
@@ -62,48 +62,27 @@ export FORGE_OS_URL=$(jq -r '.build.repository.forge_os_url' "$BUILD_JSON")
 export FORGE_PACKAGES_URL=$(jq -r '.build.repository.forge_packages_url' "$BUILD_JSON")
 
 # Security configuration
-export SIGNING_KEY_TYPE=$(jq -r '.build.security.signing_key_type' "$BUILD_JSON")
-export SIGNING_KEY_DIR=$(jq -r '.build.security.signing_key_dir' "$BUILD_JSON")
 export CHECKSUM_VERIFICATION=$(jq -r '.build.security.checksum_verification' "$BUILD_JSON")
-export GPG_SIGNATURES=$(jq -r '.build.security.gpg_signatures' "$BUILD_JSON")
-
-# Build flags
-export REPRODUCIBLE_BUILD=$(jq -r '.build.build_flags.reproducible' "$BUILD_JSON")
-export SOURCE_DATE_EPOCH=$(jq -r '.build.build_flags.source_date_epoch' "$BUILD_JSON")
-export STATIC_LINKING=$(jq -r '.build.build_flags.static_linking' "$BUILD_JSON")
-export OPTIMIZATION=$(jq -r '.build.build_flags.optimization' "$BUILD_JSON")
-export SECURITY_FLAGS=$(jq -r '.build.build_flags.security_flags[]' "$BUILD_JSON" | tr '\n' ' ')
 
 # Platform configuration
 export CURRENT_PLATFORM=$(uname -s | tr '[:upper:]' '[:lower:]')
-export MAKE_JOBS=$(jq -r ".build.platforms.${CURRENT_PLATFORM}.make_jobs" "$BUILD_JSON")
-export MAKE_CMD=$(jq -r ".build.platforms.${CURRENT_PLATFORM}.make_cmd" "$BUILD_JSON")
-
-# CI/CD configuration
-export CI_CD_ENABLED=$(jq -r '.build.ci_cd.enabled' "$BUILD_JSON")
-export CI_PLATFORMS=$(jq -r '.build.ci_cd.platforms[]' "$BUILD_JSON" | tr '\n' ' ')
-
-# Set SOURCE_DATE_EPOCH for reproducible builds
-if [[ "$SOURCE_DATE_EPOCH" == "true" ]]; then
-    export SOURCE_DATE_EPOCH=$(date +%s)
-fi
-
-# Set MAKE_JOBS based on platform
 case "$CURRENT_PLATFORM" in
     "linux")
-        if [[ "$MAKE_JOBS" == "nproc" ]]; then
-            export MAKE_JOBS=$(nproc 2>/dev/null || echo 4)
-        fi
+        export MAKE_JOBS=$(nproc 2>/dev/null || echo 4)
+        export MAKE_CMD="make"
         ;;
     "darwin"|"macos")
-        if [[ "$MAKE_JOBS" == "sysctl hw.ncpu" ]]; then
-            export MAKE_JOBS=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
-        fi
+        export MAKE_JOBS=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
+        export MAKE_CMD="gmake"
         ;;
     *)
         export MAKE_JOBS=4
+        export MAKE_CMD="make"
         ;;
 esac
+
+# Set SOURCE_DATE_EPOCH for reproducible builds
+export SOURCE_DATE_EPOCH=$(date +%s)
 
 # Set default values if not provided
 export ARCH="${ARCH:-$DEFAULT_ARCH}"
