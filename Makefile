@@ -71,6 +71,12 @@ verify: toolchain
 	@./scripts/verify_toolchain.sh $(ARCH) $(TOOLCHAIN) $(ARTIFACTS_DIR)
 	@echo "Toolchain verification complete"
 
+# Test toolchain
+test: toolchain
+	@echo "Testing $(TOOLCHAIN) toolchain..."
+	@./scripts/test_toolchain.sh $(ARCH) $(TOOLCHAIN) $(ARTIFACTS_DIR)
+	@echo "Toolchain test complete"
+
 # =============================================================================
 # DEPENDENCY CHECKS
 # =============================================================================
@@ -109,6 +115,7 @@ help:
 	@echo "  toolchain        Build specific toolchain (default: musl)"
 	@echo "  all-toolchains   Build all toolchains"
 	@echo "  verify          Build and verify toolchain"
+	@echo "  test            Build and test toolchain"
 	@echo "  clean           Clean build artifacts"
 	@echo "  clean-all       Clean all artifacts"
 	@echo "  check-dependencies  Check build dependencies"
@@ -128,6 +135,7 @@ help:
 	@echo "  make toolchain TOOLCHAIN=gnu      # Build glibc toolchain for aarch64"
 	@echo "  make all-toolchains               # Build all toolchains"
 	@echo "  make verify                       # Build and verify toolchain"
+	@echo "  make test                         # Build and test toolchain"
 
 # Show current configuration
 config:
@@ -141,4 +149,4 @@ config:
 	@echo "  Output directory: $(OUTPUT_DIR)"
 	@echo "  Source date epoch: $(SOURCE_DATE_EPOCH)"
 
-.PHONY: all toolchain all-toolchains clean clean-all verify check-dependencies linux macos help config
+.PHONY: all toolchain all-toolchains clean clean-all verify test check-dependencies linux macos help config
