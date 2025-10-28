@@ -1,24 +1,16 @@
 #!/bin/bash
 # ForgeOS Toolchain Package Download Script
-# Downloads packages from forge-packages repository
-# Usage: download_packages.sh [forge-packages-url] [packages-dir]
+# Downloads packages from forge-packages releases on GitHub
+# Usage: download_packages.sh [PACKAGE_NAME] [RELEASE_VERSION]
 
-set -euo pipefail
+# Don't use -e globally since downloads might fail
+set -uo pipefail
 
 # Script configuration - Detect project root using git
-# This ensures we find the correct root regardless of script location or invocation directory
 if ! PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
-    # Fallback to script-based detection if not in a git repository
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-    echo "Warning: Not in a git repository. Using fallback project root detection." >&2
-    echo "Project root: $PROJECT_ROOT" >&2
 fi
-
-# Parameters
-FORGE_PACKAGES_URL="${1:-https://github.com/your-org/forge-packages.git}"
-PACKAGES_DIR="${2:-$PROJECT_ROOT/packages}"
-PACKAGES_REPO_DIR="$PACKAGES_DIR/forge-packages"
 
 # Colors for output
 RED='\033[0;31m'
@@ -27,196 +19,167 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1" >&2
-}
+log_info() { echo -e "${BLUE}[INFO]${NC} $1" >&2; }
+log_success() { echo -e "${GREEN}[✓]${NC} $1" >&2; }
+log_warning() { echo -e "${YELLOW}[!]${NC} $1" >&2; }
+log_error() { echo -e "${RED}[✗]${NC} $1" >&2; }
 
-log_success() {
-    echo -e "${GREEN}[✓]${NC} $1" >&2
-}
+# Load configuration
+BUILD_JSON="$PROJECT_ROOT/build.json"
+if [[ ! -f "$BUILD_JSON" ]]; then
+    log_error "build.json not found: $BUILD_JSON"
+    exit 1
+fi
 
-log_warning() {
-    echo -e "${YELLOW}[!]${NC} $1" >&2
-}
+# Check jq dependency
+if ! command -v jq >/dev/null 2>&1; then
+    log_error "jq is required but not installed"
+    exit 1
+fi
 
-log_error() {
-    echo -e "${RED}[✗]${NC} $1" >&2
-}
+# Check curl dependency
+if ! command -v curl >/dev/null 2>&1; then
+    log_error "curl is required but not installed"
+    exit 1
+fi
 
-log_info "ForgeOS Toolchain Package Download System"
-log_info "Forge-packages URL: $FORGE_PACKAGES_URL"
-log_info "Packages directory: $PACKAGES_DIR"
+# Parse arguments
+PACKAGE_NAME="${1:-}"
+RELEASE_VERSION="${2:-}"
 
-# Create packages directory
-mkdir -p "$PACKAGES_DIR"
+# Load from build.json if not provided
+if [[ -z "$RELEASE_VERSION" ]]; then
+    RELEASE_VERSION=$(jq -r '.build.repository.forge_packages_version // "v1.0.0"' "$BUILD_JSON")
+fi
 
-# Clone or update forge-packages repository
-if [[ -d "$PACKAGES_REPO_DIR" ]]; then
-    log_info "Updating forge-packages repository..."
-    cd "$PACKAGES_REPO_DIR"
-    if git pull origin main >/dev/null 2>&1; then
-        log_success "forge-packages repository updated"
-    else
-        log_warning "Failed to update forge-packages repository"
-    fi
-    cd "$PROJECT_ROOT"
-else
-    log_info "Cloning forge-packages repository..."
-    if git clone "$FORGE_PACKAGES_URL" "$PACKAGES_REPO_DIR" >/dev/null 2>&1; then
-        log_success "forge-packages repository cloned"
-    else
-        log_error "Failed to clone forge-packages repository"
+FORGE_PACKAGES_RELEASES=$(jq -r '.build.repository.forge_packages_releases // "https://github.com/RamaEdge/forge-packages/releases"' "$BUILD_JSON")
+
+DOWNLOAD_MODE="all"
+if [[ -n "$PACKAGE_NAME" ]]; then
+    DOWNLOAD_MODE="single"
+    # Verify package exists in build.json
+    if ! jq -e ".build.packages.\"$PACKAGE_NAME\"" "$BUILD_JSON" > /dev/null 2>&1; then
+        log_error "Package not found in build.json: $PACKAGE_NAME"
         exit 1
     fi
 fi
 
-# Check if packages.json exists
-if [[ ! -f "$PACKAGES_REPO_DIR/metadata/packages.json" ]]; then
-    log_error "Package manifest not found: $PACKAGES_REPO_DIR/metadata/packages.json"
-    log_info "Please ensure forge-packages repository is properly set up"
-    exit 1
-fi
-
-# Load package manifest
-log_info "Loading package manifest..."
-if ! source "$PACKAGES_REPO_DIR/metadata/packages.json" 2>/dev/null; then
-    log_error "Failed to load package manifest"
-    exit 1
-fi
-
-# Load build.json configuration
-BUILD_JSON="$PROJECT_ROOT/build.json"
-if [[ ! -f "$BUILD_JSON" ]]; then
-    log_error "build.json not found at $BUILD_JSON"
-    exit 1
-fi
-
-# Parse package configuration from build.json
-if ! command -v jq >/dev/null 2>&1; then
-    log_error "jq is required but not installed"
-    log_info "Install with: sudo apt-get install jq (Ubuntu/Debian)"
-    log_info "Install with: brew install jq (macOS)"
-    exit 1
-fi
-
-# Get all packages from build.json
-PACKAGES_JSON=$(jq -r '.build.packages | keys[]' "$BUILD_JSON")
-
-log_info "Packages to download from build.json:"
-for package in $PACKAGES_JSON; do
-    version=$(jq -r ".build.packages.\"$package\".version" "$BUILD_JSON")
-    filename=$(jq -r ".build.packages.\"$package\".filename" "$BUILD_JSON")
-    toolchain=$(jq -r ".build.packages.\"$package\".toolchain" "$BUILD_JSON")
-    description=$(jq -r ".build.packages.\"$package\".description" "$BUILD_JSON")
-    log_info "  $package: $version ($filename) - $toolchain toolchain - $description"
-done
-
-# Create local packages directory
-LOCAL_PACKAGES_DIR="$PACKAGES_DIR/downloads"
-mkdir -p "$LOCAL_PACKAGES_DIR"
-
-# Download toolchain packages
-log_info "Downloading toolchain packages..."
-
-# Function to download package from forge-packages
-download_package() {
-    local package_name="$1"
-    local package_file="$2"
-    local source_path="$PACKAGES_REPO_DIR/packages/toolchain/$package_file"
-    local dest_path="$LOCAL_PACKAGES_DIR/$package_file"
-    
-    if [[ -f "$source_path" ]]; then
-        if [[ ! -f "$dest_path" ]] || [[ "$source_path" -nt "$dest_path" ]]; then
-            log_info "Copying $package_file..."
-            cp "$source_path" "$dest_path"
-            log_success "Copied $package_file"
-        else
-            log_success "Cached $package_file"
-        fi
-        return 0
-    else
-        log_warning "Package not found in forge-packages: $package_file"
-        return 1
-    fi
-}
-
-# Download packages dynamically from build.json configuration
-log_info "Downloading packages using build.json configuration..."
-
-# Download each package defined in build.json
-for package in $PACKAGES_JSON; do
-    filename=$(jq -r ".build.packages.\"$package\".filename" "$BUILD_JSON")
-    toolchain=$(jq -r ".build.packages.\"$package\".toolchain" "$BUILD_JSON")
-    description=$(jq -r ".build.packages.\"$package\".description" "$BUILD_JSON")
-    
-    log_info "Downloading $package ($filename) for $toolchain toolchain..."
-    if download_package "$package" "$filename"; then
-        log_success "Downloaded $package ($filename)"
-    else
-        log_warning "$package package not available in forge-packages"
-    fi
-done
-
-# Verify package integrity if checksums are available
-if [[ -f "$PACKAGES_REPO_DIR/metadata/checksums.json" ]]; then
-    log_info "Verifying package integrity..."
-    # TODO: Implement checksum verification
-    log_success "Package integrity verified"
-else
-    log_warning "Checksums not available - skipping integrity verification"
-fi
-
-# Create package info file
-log_info "Creating package info file..."
-cat > "$LOCAL_PACKAGES_DIR/package-info.txt" << EOF
-# ForgeOS Toolchain Package Information
-# Generated: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-# Source: forge-packages repository
-# Configuration: build.json
-
-## Package Source
-- Forge-packages repository: $FORGE_PACKAGES_URL
-- Local directory: $LOCAL_PACKAGES_DIR
-- Forge-packages directory: $PACKAGES_REPO_DIR
-- Configuration file: $BUILD_JSON
-
-## Package Configuration (from build.json)
-$(for package in $PACKAGES_JSON; do
-    version=$(jq -r ".build.packages.\"$package\".version" "$BUILD_JSON")
-    filename=$(jq -r ".build.packages.\"$package\".filename" "$BUILD_JSON")
-    toolchain=$(jq -r ".build.packages.\"$package\".toolchain" "$BUILD_JSON")
-    description=$(jq -r ".build.packages.\"$package\".description" "$BUILD_JSON")
-    echo "- $package: $version ($filename) - $toolchain toolchain - $description"
-done)
-
-## Available Packages
-$(ls -la "$LOCAL_PACKAGES_DIR" | grep -v "package-info.txt" | awk '{print $9, $5, $6, $7, $8}')
-
-## Usage
-To use these packages in toolchain builds:
-1. Set PACKAGES_DIR environment variable: export PACKAGES_DIR="$LOCAL_PACKAGES_DIR"
-2. Run toolchain build: make toolchain
-3. Packages will be automatically used from this directory
-
-## Integration
-This package system integrates with:
-- ForgeOS toolchain repository: $REPO_NAME v$REPO_VERSION
-- ForgeOS packages repository: $FORGE_PACKAGES_URL
-- ForgeOS profiles repository
-- ForgeOS security repository
-- CI/CD pipelines
-
-## Configuration
-Package versions are managed in build.json:
-- Update versions in build.json
-- Re-run download_packages.sh to get new versions
-- All toolchain builds will use the configured versions
-EOF
-
-log_success "Package download complete!"
-log_info "Packages directory: $LOCAL_PACKAGES_DIR"
-log_info "Package info: $LOCAL_PACKAGES_DIR/package-info.txt"
+log_info "ForgeOS Toolchain Package Download System"
+log_info "Release Version: $RELEASE_VERSION"
+log_info "Source: $FORGE_PACKAGES_RELEASES"
 log_info ""
-log_info "To use these packages:"
-log_info "  export PACKAGES_DIR=\"$LOCAL_PACKAGES_DIR\""
-log_info "  make toolchain"
+
+# Determine which packages to download
+if [[ "$DOWNLOAD_MODE" == "single" ]]; then
+    log_info "Download Mode: Single Package"
+    log_info "Package: $PACKAGE_NAME"
+    PACKAGES_TO_DOWNLOAD=$(echo "$PACKAGE_NAME")
+else
+    log_info "Download Mode: All Packages"
+    log_info "Loading packages from build.json..."
+    PACKAGES_TO_DOWNLOAD=$(jq -r '.build.packages | keys[]' "$BUILD_JSON" 2>/dev/null || echo "")
+fi
+
+echo ""
+
+# Create packages directory
+PACKAGES_DIR="$PROJECT_ROOT/packages/downloads"
+mkdir -p "$PACKAGES_DIR"
+
+# Download each package
+total=0
+downloaded=0
+cached=0
+failed=0
+
+# Process packages
+while IFS= read -r package_name; do
+    if [[ -z "$package_name" ]]; then
+        continue
+    fi
+    
+    version=$(jq -r ".build.packages.\"$package_name\".version" "$BUILD_JSON" 2>/dev/null || echo "unknown")
+    filename=$(jq -r ".build.packages.\"$package_name\".filename" "$BUILD_JSON" 2>/dev/null || echo "")
+    url=$(jq -r ".build.packages.\"$package_name\".url" "$BUILD_JSON" 2>/dev/null || echo "")
+    
+    if [[ -z "$filename" ]] || [[ -z "$url" ]]; then
+        log_warning "Skipping $package_name - missing filename or url"
+        continue
+    fi
+    
+    # Replace release version in URL (e.g., /v1.0.0 -> /v1.0.1)
+    url=$(echo "$url" | sed "s|/v[0-9]\+\.[0-9]\+\.[0-9]\+|/$RELEASE_VERSION|g")
+    
+    filepath="$PACKAGES_DIR/$filename"
+    ((total++))
+    
+    # Check if already downloaded
+    if [[ -f "$filepath" ]]; then
+        log_success "Cached: $filename ($version)"
+        ((cached++))
+        continue
+    fi
+    
+    log_info "Downloading: $filename ($version)"
+    log_info "  URL: $url"
+    
+    # Try downloading with gh first if package is from GitHub releases
+    if [[ "$url" == *"github.com"*"releases/download"* ]] && command -v gh >/dev/null 2>&1; then
+        # Extract release info from URL
+        gh_repo=$(echo "$url" | sed 's|.*/\([^/]*/[^/]*\)/releases.*|\1|')
+        gh_tag=$(echo "$url" | sed 's|.*releases/download/\([^/]*\)/.*|\1|')
+        
+        log_info "  Using GitHub CLI for download..."
+        if gh release download "$gh_tag" -R "$gh_repo" -p "$filename" -D "$PACKAGES_DIR" --clobber 2>/dev/null; then
+            log_success "Downloaded: $filename"
+            ((downloaded++))
+            continue
+        else
+            log_warning "GitHub CLI download failed, trying curl..."
+        fi
+    fi
+    
+    # Download with error handling (don't exit on failure)
+    if curl -L -f --connect-timeout 30 --max-time 600 \
+        --progress-bar \
+        -o "$filepath" "$url" 2>/dev/null; then
+        log_success "Downloaded: $filename"
+        ((downloaded++))
+    else
+        log_error "Failed to download: $filename"
+        log_info "  URL: $url"
+        rm -f "$filepath"
+        ((failed++))
+    fi
+done <<< "$PACKAGES_TO_DOWNLOAD"
+
+# Summary
+echo ""
+log_info "═══════════════════════════════════════════════════"
+log_info "  Download Summary"
+log_info "═══════════════════════════════════════════════════"
+echo ""
+log_info "Mode: $DOWNLOAD_MODE"
+log_info "Release: $RELEASE_VERSION"
+log_info "Total packages: $total"
+log_info "Downloaded: $downloaded"
+log_info "Cached: $cached"
+log_info "Failed: $failed"
+log_info "Output directory: $PACKAGES_DIR"
+echo ""
+
+if [[ $failed -eq 0 ]] && [[ $total -gt 0 ]]; then
+    log_success "All packages ready! ✨"
+    log_info ""
+    log_info "To use packages in toolchain builds:"
+    log_info "  export PACKAGES_DIR=\"$PACKAGES_DIR\""
+    log_info "  make toolchain"
+    exit 0
+elif [[ $total -eq 0 ]]; then
+    log_warning "No packages found to download"
+    exit 0
+else
+    log_error "Some packages failed to download"
+    log_info "Try updating RELEASE_VERSION in build.json or check repository URL"
+    exit 1
+fi

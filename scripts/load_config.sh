@@ -30,9 +30,9 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 # Load configuration variables
-export FORGEOS_VERSION=$(jq -r '.metadata.version' "$BUILD_JSON")
-export FORGEOS_DESCRIPTION=$(jq -r '.metadata.description' "$BUILD_JSON")
-export FORGEOS_LAST_UPDATED=$(jq -r '.metadata.last_updated' "$BUILD_JSON")
+export FORGEOS_VERSION=$(jq -r '.metadata.version // "0.1.0"' "$BUILD_JSON")
+export FORGEOS_DESCRIPTION=$(jq -r '.metadata.description // "ForgeOS Toolchain Build Configuration"' "$BUILD_JSON")
+export FORGEOS_LAST_UPDATED=$(jq -r '.metadata.last_updated // "unknown"' "$BUILD_JSON")
 
 # Build directories
 export BUILD_DIR=$(jq -r '.build.directories.build' "$BUILD_JSON")
@@ -51,6 +51,7 @@ export DEFAULT_TOOLCHAIN="musl"
 export BINUTILS_VERSION=$(jq -r '.build.packages.binutils.version' "$BUILD_JSON")
 export GCC_VERSION=$(jq -r '.build.packages.gcc.version' "$BUILD_JSON")
 export GLIBC_VERSION=$(jq -r '.build.packages.glibc.version' "$BUILD_JSON")
+export MUSL_VERSION=$(jq -r '.build.packages.musl.version' "$BUILD_JSON")
 export MUSL_CROSS_MAKE_VERSION=$(jq -r '.build.packages."musl-cross-make".version' "$BUILD_JSON")
 export LINUX_VERSION=$(jq -r '.build.packages.linux.version' "$BUILD_JSON")
 
