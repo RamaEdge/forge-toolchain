@@ -88,6 +88,18 @@ fi
 # Create minimal archives for each toolchain
 ARTIFACTS_DIR="$PROJECT_ROOT/artifacts"
 
+# Track temp directories for cleanup
+TEMP_DIRS=()
+cleanup_temp_dirs() {
+    for temp_dir in "${TEMP_DIRS[@]}"; do
+        if [[ -d "$temp_dir" ]]; then
+            rm -rf "$temp_dir"
+        fi
+    done
+}
+# Set trap OUTSIDE the loop to catch all temp dirs
+trap 'cleanup_temp_dirs' EXIT
+
 for toolchain in "${TOOLCHAINS[@]}"; do
     log_info "Processing $toolchain toolchain..."
     
@@ -100,18 +112,36 @@ for toolchain in "${TOOLCHAINS[@]}"; do
     
     # Create temporary directory for minimal archive
     TEMP_DIR=$(mktemp -d)
-    trap "rm -rf $TEMP_DIR" EXIT
+    TEMP_DIRS+=("$TEMP_DIR")  # ← Track for cleanup
     
     # Copy only essential files (bin and sysroot)
     log_info "  Copying essential files..."
     mkdir -p "$TEMP_DIR/bin"
     mkdir -p "$TEMP_DIR/${ARCH}-linux-${toolchain}"
     
-    # Copy all binaries from bin/
-    cp -r "$OUTPUT_DIR/bin/"* "$TEMP_DIR/bin/" || true
+    # Copy all binaries from bin/ - with error checking
+    if ! cp -r "$OUTPUT_DIR/bin/"* "$TEMP_DIR/bin/" 2>/dev/null; then
+        log_error "Failed to copy bin directory"
+        exit 1
+    fi
+    
+    # Verify files were copied
+    if [[ -z "$(find "$TEMP_DIR/bin" -type f)" ]]; then
+        log_error "No files copied to bin directory"
+        exit 1
+    fi
     
     # Copy sysroot (C library, headers, essential libs)
-    cp -r "$OUTPUT_DIR/${ARCH}-linux-${toolchain}/"* "$TEMP_DIR/${ARCH}-linux-${toolchain}/" || true
+    if ! cp -r "$OUTPUT_DIR/${ARCH}-linux-${toolchain}/"* "$TEMP_DIR/${ARCH}-linux-${toolchain}/" 2>/dev/null; then
+        log_error "Failed to copy sysroot directory"
+        exit 1
+    fi
+    
+    # Verify sysroot files were copied
+    if [[ -z "$(find "$TEMP_DIR/${ARCH}-linux-${toolchain}" -type f)" ]]; then
+        log_error "No files copied to sysroot directory"
+        exit 1
+    fi
     
     # Create release archive (minimal)
     ARCHIVE_NAME="${toolchain}-${ARCH}-${VERSION}.tar.gz"
@@ -134,9 +164,9 @@ for toolchain in "${TOOLCHAINS[@]}"; do
     ARCHIVE_SIZE=$(du -h "$ARCHIVE_PATH" | cut -f1)
     log_success "  Archive created: $ARCHIVE_NAME ($ARCHIVE_SIZE)"
     
-    # Generate checksums
+    # Generate checksums from original artifact structure (not temp dir)
     log_info "  Generating checksums..."
-    cd "$TEMP_DIR"
+    cd "$OUTPUT_DIR"
     find . -type f -exec sha256sum {} \; > "$RELEASES_DIR/${toolchain}-${ARCH}-${VERSION}-SHA256SUMS.txt"
     cd - > /dev/null
     log_success "  Checksums generated"
@@ -146,80 +176,93 @@ echo ""
 
 # Generate combined release notes
 log_info "Generating release notes..."
-{
-    echo "# ForgeOS Toolchains $VERSION"
-    echo ""
-    echo "Complete cross-compilation toolchains for ForgeOS edge Linux distribution."
-    echo ""
-    echo "## Build Information"
-    echo ""
-    echo "- **Version**: $VERSION"
-    echo "- **Architecture**: $ARCH"
-    echo "- **Build Date**: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-    echo ""
-    echo "## Available Toolchains"
-    echo ""
-    echo "### musl Toolchain"
-    echo "- **Target Triple**: ${ARCH}-linux-musl"
-    echo "- **C Library**: musl (lightweight, static-friendly)"
-    echo "- **Compiler**: GCC 15.2.0"
-    echo "- **Binutils**: GNU binutils 2.45"
-    echo ""
-    echo "### GNU (glibc) Toolchain"
-    echo "- **Target Triple**: ${ARCH}-linux-gnu"
-    echo "- **C Library**: glibc 2.42"
-    echo "- **Compiler**: GCC 15.2.0"
-    echo "- **Binutils**: GNU binutils 2.45"
-    echo ""
-    echo "## Archive Contents"
-    echo ""
-    echo "Each archive contains only essential files for cross-compilation:"
-    echo ""
-    echo "- \`bin/\` - Compiler binaries (gcc, g++, ld, as, ar, etc.)"
-    echo "- \`<target>/\` - C library, headers, and sysroot libraries"
-    echo ""
-    echo "**Note**: Removed to reduce size:"
-    echo "- libexec/ (GCC internals) - saves ~770 MB"
-    echo "- share/ (documentation) - saves ~21 MB"
-    echo ""
-    echo "## Installation"
-    echo ""
-    echo "Extract and use the toolchain:"
-    echo ""
-    echo "\`\`\`bash"
-    echo "# Extract archive"
-    echo "tar -xzf musl-${ARCH}-${VERSION}.tar.gz -C /opt/toolchain/"
-    echo ""
-    echo "# Add to PATH"
-    echo "export PATH=/opt/toolchain/bin:\$PATH"
-    echo ""
-    echo "# Cross-compile"
-    echo "${ARCH}-linux-musl-gcc -o program program.c"
-    echo "\`\`\`"
-    echo ""
-    echo "## Verification"
-    echo ""
-    echo "Verify checksums:"
-    echo ""
-    echo "\`\`\`bash"
-    echo "sha256sum -c musl-${ARCH}-${VERSION}-SHA256SUMS.txt"
-    echo "sha256sum -c gnu-${ARCH}-${VERSION}-SHA256SUMS.txt"
-    echo "\`\`\`"
-    echo ""
-    echo "## Compatibility"
-    echo ""
-    echo "- **Build Host**: Linux (x86_64 or aarch64)"
-    echo "- **Target**: ARM64 (aarch64)"
-    echo "- **Requirements**: glibc 2.17+, bash 4.0+"
-    echo ""
-    echo "## Usage with ForgeOS"
-    echo ""
-    echo "These toolchains are compatible with ForgeOS kernel and userland builds."
-    echo ""
-    echo "## For More Information"
-    echo ""
-    echo "Visit: [ForgeOS Project](https://github.com/ramaedge/forge-os)"
-} > "$PROJECT_ROOT/TOOLCHAIN_RELEASE_NOTES.md"
+cat > "$PROJECT_ROOT/TOOLCHAIN_RELEASE_NOTES.md" << 'RELEASE_NOTES'
+# ForgeOS Toolchains v${VERSION}
+
+Complete cross-compilation toolchains for ForgeOS edge Linux distribution.
+
+## Build Information
+
+- **Version**: ${VERSION}
+- **Architecture**: ${ARCH}
+- **Build Date**: $(date -u +'%Y-%m-%dT%H:%M:%SZ')
+
+## Available Toolchains
+
+### musl Toolchain
+- **Target Triple**: ${ARCH}-linux-musl
+- **C Library**: musl (lightweight, static-friendly)
+- **Compiler**: GCC 15.2.0
+- **Binutils**: GNU binutils 2.45
+
+### GNU (glibc) Toolchain
+- **Target Triple**: ${ARCH}-linux-gnu
+- **C Library**: glibc 2.42
+- **Compiler**: GCC 15.2.0
+- **Binutils**: GNU binutils 2.45
+
+## Archive Contents
+
+Each archive contains only essential files for cross-compilation:
+
+- `bin/` - Compiler binaries (gcc, g++, ld, as, ar, etc.)
+- `<target>/` - C library, headers, and sysroot libraries
+
+**Note**: Removed to reduce size:
+- libexec/ (GCC internals) - saves ~770 MB
+- share/ (documentation) - saves ~21 MB
+
+## Installation
+
+Extract and use the toolchain:
+
+```bash
+# Extract archive
+tar -xzf musl-${ARCH}-${VERSION}.tar.gz -C /opt/toolchain/
+
+# Add to PATH
+export PATH=/opt/toolchain/bin:$PATH
+
+# Cross-compile with musl
+${ARCH}-linux-musl-gcc -o program program.c
+```
+
+Or with GNU C Library (glibc):
+
+```bash
+# Extract glibc toolchain
+tar -xzf gnu-${ARCH}-${VERSION}.tar.gz -C /opt/toolchain/
+
+# Add to PATH
+export PATH=/opt/toolchain/bin:$PATH
+
+# Cross-compile with glibc
+${ARCH}-linux-gnu-gcc -o program program.c
+```
+
+## Verification
+
+Verify checksums:
+
+```bash
+sha256sum -c musl-${ARCH}-${VERSION}-SHA256SUMS.txt
+sha256sum -c gnu-${ARCH}-${VERSION}-SHA256SUMS.txt
+```
+
+## Compatibility
+
+- **Build Host**: Linux (x86_64 or aarch64)
+- **Target**: ARM64 (aarch64)
+- **Requirements**: glibc 2.17+, bash 4.0+
+
+## Usage with ForgeOS
+
+These toolchains are compatible with ForgeOS kernel and userland builds.
+
+## For More Information
+
+Visit: [ForgeOS Project](https://github.com/ramaedge/forge-os)
+RELEASE_NOTES
 
 log_success "Release notes generated"
 echo ""
@@ -234,6 +277,17 @@ UPLOAD_FILES=("$RELEASES_DIR"/musl-${ARCH}-${VERSION}.tar.gz \
               "$RELEASES_DIR"/gnu-${ARCH}-${VERSION}.tar.gz \
               "$RELEASES_DIR"/gnu-${ARCH}-${VERSION}-SHA256SUMS.txt \
               "TOOLCHAIN_RELEASE_NOTES.md")
+
+# Validate all files exist before uploading
+log_info "Validating release files..."
+for file in "${UPLOAD_FILES[@]}"; do
+    if [[ ! -f "$file" ]]; then
+        log_error "Required file not found: $file"
+        exit 1
+    fi
+    log_success "  ✓ $(basename "$file")"
+done
+echo ""
 
 # Create the release
 if ! gh release create "$VERSION" \
