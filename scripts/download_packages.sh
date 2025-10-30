@@ -33,12 +33,14 @@ if ! command -v gh >/dev/null 2>&1; then
 fi
 
 # Load configuration from build.json
-FORGE_PACKAGES_VERSION=$(jq -r '.build.repository.forge_packages_version // "v1.0.2"' "$BUILD_JSON")
+FORGE_PACKAGES_REPO=$(jq -r '.build.forge_packages_repo // "ramaedge/forge-packages"' "$BUILD_JSON")
+FORGE_PACKAGES_VERSION=$(jq -r '.build.forge_packages_version // "v1.0.2"' "$BUILD_JSON")
 PACKAGES_DIR="$PROJECT_ROOT/$(jq -r '.build.directories.packages' "$BUILD_JSON")"
 EXTRACTED_DIR="$PROJECT_ROOT/$(jq -r '.build.directories.extracted' "$BUILD_JSON")"
 
 log_info "ForgeOS Toolchain Package Download System"
-log_info "forge-packages version: $FORGE_PACKAGES_VERSION"
+log_info "Repository: $FORGE_PACKAGES_REPO"
+log_info "Version: $FORGE_PACKAGES_VERSION"
 echo ""
 
 # Create directories
@@ -56,13 +58,13 @@ if [[ -n "$(ls -A "$PACKAGES_DIR" 2>/dev/null)" ]]; then
     log_info "To re-download, run: rm -rf $PACKAGES_DIR/*"
 else
     if gh release download "$FORGE_PACKAGES_VERSION" \
-        -R ramaedge/forge-packages \
+        -R "$FORGE_PACKAGES_REPO" \
         -D "$PACKAGES_DIR" \
         --skip-existing 2>&1; then
         log_success "forge-packages downloaded to: $PACKAGES_DIR"
     else
         log_error "Failed to download forge-packages release"
-        log_info "Check if release $FORGE_PACKAGES_VERSION exists: https://github.com/ramaedge/forge-packages/releases"
+        log_info "Check if release $FORGE_PACKAGES_VERSION exists: https://github.com/$FORGE_PACKAGES_REPO/releases"
         exit 1
     fi
 fi

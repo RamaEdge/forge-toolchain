@@ -10,21 +10,8 @@
       "packages": "packages/downloads",
       "extracted": "packages/extracted"
     },
-    "architecture": {
-      "default": "aarch64",
-      "supported": ["aarch64", "x86_64"]
-    },
-    "repository": {
-      "name": "forgeos-toolchain",
-      "version": "0.1.0",
-      "description": "Toolchain repository - uses packages from forge-packages",
-      "forge_packages_url": "https://github.com/ramaedge/forge-packages.git",
-      "forge_packages_version": "v1.0.2"
-    },
-    "security": {
-      "checksum_verification": true,
-      "description": "All packages from forge-packages are signed and verified"
-    },
+    "forge_packages_repo": "ramaedge/forge-packages",
+    "forge_packages_version": "v1.0.3",
     "toolchain": {
       "required_packages": ["binutils", "gcc", "linux"],
       "libc": {
