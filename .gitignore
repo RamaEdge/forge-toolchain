@@ -4,6 +4,7 @@
 # Build directories (temporary compilation only)
 build/
 output/
+packages/
 
 # Artifacts directory (ignore build outputs, but keep structure)
 artifacts/

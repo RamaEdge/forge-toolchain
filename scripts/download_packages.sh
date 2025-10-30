@@ -1,28 +1,16 @@
 #!/bin/bash
 # ForgeOS Toolchain Package Download Script
-# Downloads packages from forge-packages releases on GitHub
-# Usage: download_packages.sh [PACKAGE_NAME] [RELEASE_VERSION]
+# Downloads all packages from forge-packages releases on GitHub
+# Extracts required packages for toolchain builds
 
-# Don't use -e globally since downloads might fail
-set -uo pipefail
+set -euo pipefail
 
-# Script configuration - Detect project root using git
-if ! PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-fi
+# Load common utilities
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/common.sh"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-log_info() { echo -e "${BLUE}[INFO]${NC} $1" >&2; }
-log_success() { echo -e "${GREEN}[✓]${NC} $1" >&2; }
-log_warning() { echo -e "${YELLOW}[!]${NC} $1" >&2; }
-log_error() { echo -e "${RED}[✗]${NC} $1" >&2; }
+# Detect project root
+detect_project_root
 
 # Load configuration
 BUILD_JSON="$PROJECT_ROOT/build.json"
@@ -31,155 +19,134 @@ if [[ ! -f "$BUILD_JSON" ]]; then
     exit 1
 fi
 
-# Check jq dependency
+# Check required tools
 if ! command -v jq >/dev/null 2>&1; then
     log_error "jq is required but not installed"
+    log_info "Install: brew install jq (macOS) or apt install jq (Linux)"
     exit 1
 fi
 
-# Check curl dependency
-if ! command -v curl >/dev/null 2>&1; then
-    log_error "curl is required but not installed"
+if ! command -v gh >/dev/null 2>&1; then
+    log_error "GitHub CLI (gh) is required but not installed"
+    log_info "Install: https://cli.github.com"
     exit 1
 fi
 
-# Parse arguments
-PACKAGE_NAME="${1:-}"
-RELEASE_VERSION="${2:-}"
+# Load configuration from build.json
+FORGE_PACKAGES_VERSION=$(jq -r '.build.repository.forge_packages_version // "v1.0.2"' "$BUILD_JSON")
+PACKAGES_DIR="$PROJECT_ROOT/$(jq -r '.build.directories.packages' "$BUILD_JSON")"
+EXTRACTED_DIR="$PROJECT_ROOT/$(jq -r '.build.directories.extracted' "$BUILD_JSON")"
 
-# Load from build.json if not provided
-if [[ -z "$RELEASE_VERSION" ]]; then
-    RELEASE_VERSION=$(jq -r '.build.repository.forge_packages_version // "v1.0.0"' "$BUILD_JSON")
-fi
+log_info "ForgeOS Toolchain Package Download System"
+log_info "forge-packages version: $FORGE_PACKAGES_VERSION"
+echo ""
 
-FORGE_PACKAGES_RELEASES=$(jq -r '.build.repository.forge_packages_releases // "https://github.com/RamaEdge/forge-packages/releases"' "$BUILD_JSON")
+# Create directories
+mkdir -p "$PACKAGES_DIR"
+mkdir -p "$EXTRACTED_DIR"
 
-DOWNLOAD_MODE="all"
-if [[ -n "$PACKAGE_NAME" ]]; then
-    DOWNLOAD_MODE="single"
-    # Verify package exists in build.json
-    if ! jq -e ".build.packages.\"$PACKAGE_NAME\"" "$BUILD_JSON" > /dev/null 2>&1; then
-        log_error "Package not found in build.json: $PACKAGE_NAME"
+# =============================================================================
+# Download forge-packages release (all files)
+# =============================================================================
+
+log_info "Downloading forge-packages release: $FORGE_PACKAGES_VERSION"
+
+if [[ -n "$(ls -A "$PACKAGES_DIR" 2>/dev/null)" ]]; then
+    log_warning "Packages directory not empty, skipping download"
+    log_info "To re-download, run: rm -rf $PACKAGES_DIR/*"
+else
+    if gh release download "$FORGE_PACKAGES_VERSION" \
+        -R ramaedge/forge-packages \
+        -D "$PACKAGES_DIR" \
+        --skip-existing 2>&1; then
+        log_success "forge-packages downloaded to: $PACKAGES_DIR"
+    else
+        log_error "Failed to download forge-packages release"
+        log_info "Check if release $FORGE_PACKAGES_VERSION exists: https://github.com/ramaedge/forge-packages/releases"
         exit 1
     fi
 fi
 
-log_info "ForgeOS Toolchain Package Download System"
-log_info "Release Version: $RELEASE_VERSION"
-log_info "Source: $FORGE_PACKAGES_RELEASES"
-log_info ""
+# =============================================================================
+# Extract required packages
+# =============================================================================
 
-# Determine which packages to download
-if [[ "$DOWNLOAD_MODE" == "single" ]]; then
-    log_info "Download Mode: Single Package"
-    log_info "Package: $PACKAGE_NAME"
-    PACKAGES_TO_DOWNLOAD=$(echo "$PACKAGE_NAME")
-else
-    log_info "Download Mode: All Packages"
-    log_info "Loading packages from build.json..."
-    PACKAGES_TO_DOWNLOAD=$(jq -r '.build.packages | keys[]' "$BUILD_JSON" 2>/dev/null || echo "")
-fi
-
+log_info "Extracting required packages..."
 echo ""
 
-# Create packages directory
-PACKAGES_DIR="$PROJECT_ROOT/packages/downloads"
-mkdir -p "$PACKAGES_DIR"
+# Get required packages from build.json
+REQUIRED_PACKAGES=$(jq -r '.build.toolchain.required_packages[]' "$BUILD_JSON" 2>/dev/null)
+MUSL_PACKAGES=$(jq -r '.build.toolchain.libc.musl[]' "$BUILD_JSON" 2>/dev/null)
+GNU_PACKAGES=$(jq -r '.build.toolchain.libc.gnu[]' "$BUILD_JSON" 2>/dev/null)
 
-# Download each package
-total=0
-downloaded=0
-cached=0
-failed=0
+# Combine all packages (unique)
+ALL_PACKAGES=$(echo -e "$REQUIRED_PACKAGES\n$MUSL_PACKAGES\n$GNU_PACKAGES" | sort -u)
 
-# Process packages
+extracted_count=0
+skipped_count=0
+failed_count=0
+
+# Extract each package
 while IFS= read -r package_name; do
-    if [[ -z "$package_name" ]]; then
+    [[ -z "$package_name" ]] && continue
+    
+    # Find tarball(s) matching the package name
+    tarballs=$(find "$PACKAGES_DIR" -name "${package_name}-*.tar.xz" -o -name "${package_name}-*.tar.gz" -o -name "${package_name}-*.tar.bz2" 2>/dev/null)
+    
+    if [[ -z "$tarballs" ]]; then
+        log_warning "No tarball found for: $package_name"
         continue
     fi
     
-    version=$(jq -r ".build.packages.\"$package_name\".version" "$BUILD_JSON" 2>/dev/null || echo "unknown")
-    filename=$(jq -r ".build.packages.\"$package_name\".filename" "$BUILD_JSON" 2>/dev/null || echo "")
-    url=$(jq -r ".build.packages.\"$package_name\".url" "$BUILD_JSON" 2>/dev/null || echo "")
-    
-    if [[ -z "$filename" ]] || [[ -z "$url" ]]; then
-        log_warning "Skipping $package_name - missing filename or url"
-        continue
-    fi
-    
-    # Replace release version in URL (e.g., /v1.0.0 -> /v1.0.1)
-    url=$(echo "$url" | sed "s|/v[0-9]\+\.[0-9]\+\.[0-9]\+|/$RELEASE_VERSION|g")
-    
-    filepath="$PACKAGES_DIR/$filename"
-    ((total++))
-    
-    # Check if already downloaded
-    if [[ -f "$filepath" ]]; then
-        log_success "Cached: $filename ($version)"
-        ((cached++))
-        continue
-    fi
-    
-    log_info "Downloading: $filename ($version)"
-    log_info "  URL: $url"
-    
-    # Try downloading with gh first if package is from GitHub releases
-    if [[ "$url" == *"github.com"*"releases/download"* ]] && command -v gh >/dev/null 2>&1; then
-        # Extract release info from URL
-        gh_repo=$(echo "$url" | sed 's|.*/\([^/]*/[^/]*\)/releases.*|\1|')
-        gh_tag=$(echo "$url" | sed 's|.*releases/download/\([^/]*\)/.*|\1|')
+    while IFS= read -r tarball; do
+        [[ -z "$tarball" ]] && continue
         
-        log_info "  Using GitHub CLI for download..."
-        if gh release download "$gh_tag" -R "$gh_repo" -p "$filename" -D "$PACKAGES_DIR" --clobber 2>/dev/null; then
-            log_success "Downloaded: $filename"
-            ((downloaded++))
+        # Extract directory name (e.g., binutils-2.45.tar.xz -> binutils-2.45)
+        basename_tar=$(basename "$tarball")
+        extracted_name=$(echo "$basename_tar" | sed -E 's/\.tar\.(xz|gz|bz2)$//')
+        extracted_path="$EXTRACTED_DIR/$extracted_name"
+        
+        # Skip if already extracted
+        if [[ -d "$extracted_path" ]]; then
+            log_info "Already extracted: $extracted_name"
+            skipped_count=$((skipped_count + 1))
             continue
-        else
-            log_warning "GitHub CLI download failed, trying curl..."
         fi
-    fi
-    
-    # Download with error handling (don't exit on failure)
-    if curl -L -f --connect-timeout 30 --max-time 600 \
-        --progress-bar \
-        -o "$filepath" "$url" 2>/dev/null; then
-        log_success "Downloaded: $filename"
-        ((downloaded++))
-    else
-        log_error "Failed to download: $filename"
-        log_info "  URL: $url"
-        rm -f "$filepath"
-        ((failed++))
-    fi
-done <<< "$PACKAGES_TO_DOWNLOAD"
+        
+        # Extract the tarball
+        log_info "Extracting: $basename_tar"
+        if tar -xf "$tarball" -C "$EXTRACTED_DIR" 2>&1; then
+            log_success "Extracted: $extracted_name"
+            extracted_count=$((extracted_count + 1))
+        else
+            log_error "Failed to extract: $basename_tar"
+            failed_count=$((failed_count + 1))
+        fi
+    done <<< "$tarballs"
+done <<< "$ALL_PACKAGES"
 
+# =============================================================================
 # Summary
+# =============================================================================
+
 echo ""
 log_info "═══════════════════════════════════════════════════"
-log_info "  Download Summary"
+log_info "  Download & Extraction Summary"
 log_info "═══════════════════════════════════════════════════"
-echo ""
-log_info "Mode: $DOWNLOAD_MODE"
-log_info "Release: $RELEASE_VERSION"
-log_info "Total packages: $total"
-log_info "Downloaded: $downloaded"
-log_info "Cached: $cached"
-log_info "Failed: $failed"
-log_info "Output directory: $PACKAGES_DIR"
 echo ""
 
-if [[ $failed -eq 0 ]] && [[ $total -gt 0 ]]; then
-    log_success "All packages ready! ✨"
-    log_info ""
-    log_info "To use packages in toolchain builds:"
-    log_info "  export PACKAGES_DIR=\"$PACKAGES_DIR\""
-    log_info "  make toolchain"
-    exit 0
-elif [[ $total -eq 0 ]]; then
-    log_warning "No packages found to download"
-    exit 0
-else
-    log_error "Some packages failed to download"
-    log_info "Try updating RELEASE_VERSION in build.json or check repository URL"
+package_count=$(find "$PACKAGES_DIR" -type f \( -name "*.tar.xz" -o -name "*.tar.gz" -o -name "*.tar.bz2" \) 2>/dev/null | wc -l | tr -d ' ')
+log_info "Downloaded: $package_count files in $PACKAGES_DIR"
+log_info "Extracted: $extracted_count packages"
+log_info "Skipped: $skipped_count already extracted"
+if [[ $failed_count -gt 0 ]]; then
+    log_warning "Failed: $failed_count packages"
+fi
+log_info "Extracted to: $EXTRACTED_DIR"
+
+echo ""
+if [[ $failed_count -gt 0 ]]; then
+    log_error "Some packages failed to extract!"
     exit 1
 fi
+log_success "Packages ready for toolchain builds!"

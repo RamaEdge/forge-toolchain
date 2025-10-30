@@ -1,336 +1,48 @@
 #!/bin/bash
 # ForgeOS Toolchain Build Script
 # Builds cross-compilation toolchains (musl/glibc)
+# Usage: build_toolchain.sh [ARCH] [TOOLCHAIN]
 
 set -euo pipefail
 
-# Script configuration - Detect project root using git
-if ! PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-    echo "Warning: Not in a git repository. Using fallback project root detection." >&2
-    echo "Project root: $PROJECT_ROOT" >&2
-fi
+# Load common utilities
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/common.sh"
 
-# Load centralized versions from load_config
+# Detect project root
+detect_project_root
+
+# Load configuration
 . "$PROJECT_ROOT/scripts/load_config.sh"
 
 # Parameters
 ARCH="${1:-aarch64}"
 TOOLCHAIN="${2:-musl}"
-ARTIFACTS_DIR="${3:-$PROJECT_ROOT/artifacts}"
+BUILD_DIR="${BUILD_DIR:-$PROJECT_ROOT/build}"
+OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_ROOT/artifacts}"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# Get toolchain configuration
+get_toolchain_config "$ARCH" "$TOOLCHAIN" || exit 1
 
-log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1" >&2
-}
+# Common configuration
+PACKAGES_EXTRACTED="$PROJECT_ROOT/packages/extracted"
+PACKAGES_DIR="${PACKAGES_DIR:-$PROJECT_ROOT/packages/downloads}"
 
-log_success() {
-    echo -e "${GREEN}[✓]${NC} $1" >&2
-}
-
-log_warning() {
-    echo -e "${YELLOW}[!]${NC} $1" >&2
-}
-
-log_error() {
-    echo -e "${RED}[✗]${NC} $1" >&2
-}
-
-# Build configuration
-BUILD_DIR="$PROJECT_ROOT/build/toolchain"
-DOWNLOADS_DIR="$PROJECT_ROOT/packages/downloads"
-TOOLCHAIN_OUTPUT="$ARTIFACTS_DIR/$ARCH-$TOOLCHAIN"
-
-# Cross-compilation settings
-if [[ "$TOOLCHAIN" == "musl" ]]; then
-    TARGET="$ARCH-linux-musl"
-    CROSS_COMPILE="$TARGET-"
-else
-    TARGET="$ARCH-linux-gnu"
-    CROSS_COMPILE="$TARGET-"
-fi
-
-log_info "Building $TOOLCHAIN toolchain for $ARCH"
-log_info "Target: $TARGET"
-log_info "Build directory: $BUILD_DIR"
-log_info "Output directory: $TOOLCHAIN_OUTPUT"
-
-# Create build directories
-mkdir -p "$BUILD_DIR"
-mkdir -p "$TOOLCHAIN_OUTPUT"
-
-# Check if toolchain already exists and is complete
-if [[ -f "$TOOLCHAIN_OUTPUT/bin/$CROSS_COMPILE"gcc ]] && \
-   [[ -f "$TOOLCHAIN_OUTPUT/bin/$CROSS_COMPILE"g++ ]] && \
-   [[ -f "$TOOLCHAIN_OUTPUT/bin/$CROSS_COMPILE"ar ]] && \
-   [[ -f "$TOOLCHAIN_OUTPUT/bin/$CROSS_COMPILE"ld ]]; then
-    log_success "Complete toolchain already exists at $TOOLCHAIN_OUTPUT"
-    log_info "Skipping toolchain build (use 'make clean-toolchain' to rebuild)"
-    exit 0
-fi
-
-# Build musl toolchain using pre-downloaded packages
-build_musl_toolchain() {
-    log_info "Building musl toolchain using pre-downloaded packages..."
-    
-    # Check for required packages
-    local binutils_tar="$DOWNLOADS_DIR/binutils-${BINUTILS_VERSION}.tar.xz"
-    local gcc_tar="$DOWNLOADS_DIR/gcc-${GCC_VERSION}.tar.xz"
-    local musl_tar="$DOWNLOADS_DIR/musl-${MUSL_VERSION}.tar.gz"
-    local linux_tar="$DOWNLOADS_DIR/linux-${LINUX_VERSION}.tar.xz"
-    
-    for pkg in "$binutils_tar" "$gcc_tar" "$musl_tar" "$linux_tar"; do
-        if [[ ! -f "$pkg" ]]; then
-            log_error "Required package not found: $pkg"
-            log_info "Please run 'make download-packages' first"
-            exit 1
-        fi
-    done
-    
-    # Create build directories
-    local build_root="$BUILD_DIR/musl-toolchain"
-    mkdir -p "$build_root"
-    
-    # Extract packages
-    log_info "Extracting toolchain packages..."
-    tar -xf "$binutils_tar" -C "$build_root" || { log_error "Failed to extract binutils"; exit 1; }
-    tar -xf "$gcc_tar" -C "$build_root" || { log_error "Failed to extract GCC"; exit 1; }
-    tar -xf "$musl_tar" -C "$build_root" || { log_error "Failed to extract musl"; exit 1; }
-    tar -xf "$linux_tar" -C "$build_root" || { log_error "Failed to extract Linux headers"; exit 1; }
-    
-    # Set up environment
-    export PATH="$TOOLCHAIN_OUTPUT/bin:$PATH"
-    export PREFIX="$TOOLCHAIN_OUTPUT"
-    export DESTDIR=""
-    export INSTALL_PREFIX="$TOOLCHAIN_OUTPUT"
-    
-    # Create target directories to prevent system directory creation
-    mkdir -p "$TOOLCHAIN_OUTPUT/share/info"
-    mkdir -p "$TOOLCHAIN_OUTPUT/share/man"
-    mkdir -p "$TOOLCHAIN_OUTPUT/share"
-    
-    # Get absolute paths
-    local toolchain_output_abs="$(cd "$TOOLCHAIN_OUTPUT" && pwd)"
-    local toolchain_target_abs="$toolchain_output_abs/$TARGET"
-    
-    # Build binutils first
-    log_info "Building binutils..."
-    local binutils_dir="$build_root/binutils-${BINUTILS_VERSION}"
-    local binutils_build_dir="$binutils_dir/build"
-    mkdir -p "$binutils_build_dir"
-    
-    pushd "$binutils_build_dir" > /dev/null
-    "$binutils_dir/configure" \
-        --target="$TARGET" \
-        --prefix="$toolchain_output_abs" \
-        --disable-nls \
-        --disable-werror \
-        --disable-multilib \
-        --infodir="$toolchain_output_abs/share/info" \
-        --mandir="$toolchain_output_abs/share/man" \
-        --datadir="$toolchain_output_abs/share"
-    gmake -j$(nproc 2>/dev/null || echo 4)
-    gmake DESTDIR="" install
-    popd > /dev/null
-    
-    # Build GCC (stage 1 - bootstrap)
-    log_info "Building GCC (stage 1)..."
-    local gcc_dir="$build_root/gcc-${GCC_VERSION}"
-    local gcc_build_dir="$gcc_dir/build"
-    mkdir -p "$gcc_build_dir"
-    
-    pushd "$gcc_build_dir" > /dev/null
-    "$gcc_dir/configure" \
-        --target="$TARGET" \
-        --prefix="$toolchain_output_abs" \
-        --enable-languages=c \
-        --disable-libssp \
-        --disable-libgomp \
-        --disable-libmudflap \
-        --disable-libsanitizer \
-        --disable-libatomic \
-        --disable-libquadmath \
-        --disable-multilib \
-        --with-sysroot="$toolchain_target_abs" \
-        --with-newlib \
-        --disable-shared \
-        --disable-threads \
-        --disable-libstdcxx-pch \
-        --infodir="$toolchain_output_abs/share/info" \
-        --mandir="$toolchain_output_abs/share/man" \
-        --datadir="$toolchain_output_abs/share"
-    gmake -j$(nproc 2>/dev/null || echo 4) all-gcc
-    gmake DESTDIR="" install-gcc
-    popd > /dev/null
-    
-    # Build musl
-    log_info "Building musl..."
-    local musl_dir="$build_root/musl-${MUSL_VERSION}"
-    
-    # Check if musl is already built
-    if [[ -f "$toolchain_target_abs/lib/libc.so" ]] && [[ -f "$toolchain_target_abs/bin/musl-gcc" ]]; then
-        log_success "musl already built - skipping"
-        return 0
-    fi
-    
-    pushd "$musl_dir" > /dev/null
-    # Set up cross-compilation environment for musl build
-    # Use host compiler to build musl, not the cross-compiler
-    export PATH="$TOOLCHAIN_OUTPUT/bin:$PATH"
-    export CC="gcc"  # Use host gcc, not cross-compiler
-    export CROSS_COMPILE=""  # Clear cross-compile for musl build
-    export CFLAGS="-O2"
-    export LDFLAGS=""
-    ./configure \
-        --prefix="$toolchain_target_abs" \
-        --disable-shared \
-        --infodir="$toolchain_output_abs/share/info" \
-        --mandir="$toolchain_output_abs/share/man" \
-        --datadir="$toolchain_output_abs/share" \
-        "$TARGET"
-    gmake -j$(nproc 2>/dev/null || echo 4)
-    gmake DESTDIR="" install
-    popd > /dev/null
-    
-    log_success "musl toolchain built successfully"
-}
-
-# Build glibc toolchain using pre-downloaded packages
-build_glibc_toolchain() {
-    log_info "Building glibc toolchain using pre-downloaded packages..."
-    
-    # Check for required packages
-    local binutils_tar="$DOWNLOADS_DIR/binutils-${BINUTILS_VERSION}.tar.xz"
-    local gcc_tar="$DOWNLOADS_DIR/gcc-${GCC_VERSION}.tar.xz"
-    local glibc_tar="$DOWNLOADS_DIR/glibc-${GLIBC_VERSION}.tar.xz"
-    local linux_tar="$DOWNLOADS_DIR/linux-${LINUX_VERSION}.tar.xz"
-    
-    for pkg in "$binutils_tar" "$gcc_tar" "$glibc_tar" "$linux_tar"; do
-        if [[ ! -f "$pkg" ]]; then
-            log_error "Required package not found: $pkg"
-            log_info "Please run 'make download-packages' first"
-            exit 1
-        fi
-    done
-    
-    # Create build directories
-    local build_root="$BUILD_DIR/glibc-toolchain"
-    mkdir -p "$build_root"
-    
-    # Extract packages
-    log_info "Extracting toolchain packages..."
-    tar -xf "$binutils_tar" -C "$build_root" || { log_error "Failed to extract binutils"; exit 1; }
-    tar -xf "$gcc_tar" -C "$build_root" || { log_error "Failed to extract GCC"; exit 1; }
-    tar -xf "$glibc_tar" -C "$build_root" || { log_error "Failed to extract glibc"; exit 1; }
-    tar -xf "$linux_tar" -C "$build_root" || { log_error "Failed to extract Linux headers"; exit 1; }
-    
-    # Set up environment
-    export PATH="$TOOLCHAIN_OUTPUT/bin:$PATH"
-    export PREFIX="$TOOLCHAIN_OUTPUT"
-    export DESTDIR=""
-    export INSTALL_PREFIX="$TOOLCHAIN_OUTPUT"
-    
-    # Create target directories to prevent system directory creation
-    mkdir -p "$TOOLCHAIN_OUTPUT/share/info"
-    mkdir -p "$TOOLCHAIN_OUTPUT/share/man"
-    mkdir -p "$TOOLCHAIN_OUTPUT/share"
-    
-    # Get absolute paths
-    local toolchain_output_abs="$(cd "$TOOLCHAIN_OUTPUT" && pwd)"
-    local toolchain_target_abs="$toolchain_output_abs/$TARGET"
-    local linux_headers_abs="$(cd "$build_root/linux-${LINUX_VERSION}/include" && pwd)"
-    
-    # Build binutils first
-    log_info "Building binutils..."
-    local binutils_dir="$build_root/binutils-${BINUTILS_VERSION}"
-    local binutils_build_dir="$binutils_dir/build"
-    mkdir -p "$binutils_build_dir"
-    
-    pushd "$binutils_build_dir" > /dev/null
-    "$binutils_dir/configure" \
-        --target="$TARGET" \
-        --prefix="$toolchain_output_abs" \
-        --disable-nls \
-        --disable-werror \
-        --disable-multilib \
-        --infodir="$toolchain_output_abs/share/info" \
-        --mandir="$toolchain_output_abs/share/man" \
-        --datadir="$toolchain_output_abs/share"
-    gmake -j$(nproc 2>/dev/null || echo 4)
-    gmake DESTDIR="" install
-    popd > /dev/null
-    
-    # Build GCC (stage 1 - bootstrap)
-    log_info "Building GCC (stage 1)..."
-    local gcc_dir="$build_root/gcc-${GCC_VERSION}"
-    local gcc_build_dir="$gcc_dir/build"
-    mkdir -p "$gcc_build_dir"
-    
-    pushd "$gcc_build_dir" > /dev/null
-    "$gcc_dir/configure" \
-        --target="$TARGET" \
-        --prefix="$toolchain_output_abs" \
-        --enable-languages=c \
-        --disable-libssp \
-        --disable-libgomp \
-        --disable-libmudflap \
-        --disable-libsanitizer \
-        --disable-libatomic \
-        --disable-libquadmath \
-        --disable-multilib \
-        --with-sysroot="$toolchain_target_abs" \
-        --with-newlib \
-        --disable-shared \
-        --disable-threads \
-        --disable-libstdcxx-pch \
-        --infodir="$toolchain_output_abs/share/info" \
-        --mandir="$toolchain_output_abs/share/man" \
-        --datadir="$toolchain_output_abs/share"
-    gmake -j$(nproc 2>/dev/null || echo 4) all-gcc
-    gmake DESTDIR="" install-gcc
-    popd > /dev/null
-    
-    # Build glibc headers
-    log_info "Building glibc headers..."
-    local glibc_dir="$build_root/glibc-${GLIBC_VERSION}"
-    local glibc_build_dir="$glibc_dir/build"
-    mkdir -p "$glibc_build_dir"
-    
-    # Check if glibc is already built
-    if [[ -f "$toolchain_target_abs/lib/libc.so.6" ]] && [[ -f "$toolchain_target_abs/lib/libm.so.6" ]]; then
-        log_success "glibc already built - skipping"
-        return 0
-    fi
-    
-    pushd "$glibc_build_dir" > /dev/null
-    "$glibc_dir/configure" \
-        --target="$TARGET" \
-        --prefix="$toolchain_target_abs" \
-        --with-headers="$linux_headers_abs" \
-        --disable-multilib \
-        --infodir="$toolchain_output_abs/share/info" \
-        --mandir="$toolchain_output_abs/share/man" \
-        --datadir="$toolchain_output_abs/share"
-    gmake DESTDIR="" install-headers
-    popd > /dev/null
-    
-    log_success "glibc toolchain built successfully"
-}
-
-# Main build logic
+# Build logic based on toolchain type
 case "$TOOLCHAIN" in
     "musl")
-        build_musl_toolchain
+        # OUTPUT_DIR already includes arch-toolchain from Makefile or defaults to artifacts
+        TOOLCHAIN_OUTPUT="${OUTPUT_DIR:-$PROJECT_ROOT/artifacts/$ARCH-musl}"
+        BUILD_ROOT="$BUILD_DIR/musl-toolchain"
+        LIBC_TYPE="musl"
+        LIBC_PATTERN="musl-*"
         ;;
     "gnu"|"glibc")
-        build_glibc_toolchain
+        # OUTPUT_DIR already includes arch-toolchain from Makefile or defaults to artifacts
+        TOOLCHAIN_OUTPUT="${OUTPUT_DIR:-$PROJECT_ROOT/artifacts/$ARCH-gnu}"
+        BUILD_ROOT="$BUILD_DIR/glibc-toolchain"
+        LIBC_TYPE="glibc"
+        LIBC_PATTERN="glibc-*"
         ;;
     *)
         log_error "Unknown toolchain: $TOOLCHAIN"
@@ -339,17 +51,197 @@ case "$TOOLCHAIN" in
         ;;
 esac
 
-# Reset CROSS_COMPILE for verification
-CROSS_COMPILE="$TARGET-"
+log_info "Building $LIBC_TYPE toolchain for $ARCH"
+log_info "Target: $TARGET"
+log_info "Extracted packages: $PACKAGES_EXTRACTED"
+log_info "Build directory: $BUILD_ROOT"
+log_info "Output directory: $TOOLCHAIN_OUTPUT"
 
+# =============================================================================
+# Find required pre-extracted packages
+# =============================================================================
+
+log_info "Locating pre-extracted packages..."
+
+# Find pre-extracted package directories
+BINUTILS_SRC=$(find "$PACKAGES_EXTRACTED" -maxdepth 1 -type d -name "binutils-*" | head -1)
+GCC_SRC=$(find "$PACKAGES_EXTRACTED" -maxdepth 1 -type d -name "gcc-*" | head -1)
+LIBC_SRC=$(find "$PACKAGES_EXTRACTED" -maxdepth 1 -type d -name "$LIBC_PATTERN" | head -1)
+LINUX_SRC=$(find "$PACKAGES_EXTRACTED" -maxdepth 1 -type d -name "linux-*" | head -1)
+
+# Verify all packages found
+missing_packages=()
+[[ -z "$BINUTILS_SRC" ]] && missing_packages+=("binutils")
+[[ -z "$GCC_SRC" ]] && missing_packages+=("gcc")
+[[ -z "$LIBC_SRC" ]] && missing_packages+=("$LIBC_TYPE")
+[[ -z "$LINUX_SRC" ]] && missing_packages+=("linux")
+
+if [[ ${#missing_packages[@]} -gt 0 ]]; then
+    log_error "Required packages not found in $PACKAGES_EXTRACTED:"
+    for pkg in "${missing_packages[@]}"; do
+        log_error "  - $pkg"
+    done
+    log_info "Run download-packages first: make download-packages"
+    exit 1
+fi
+
+log_success "Found: $(basename "$BINUTILS_SRC")"
+log_success "Found: $(basename "$GCC_SRC")"
+log_success "Found: $(basename "$LIBC_SRC")"
+log_success "Found: $(basename "$LINUX_SRC")"
+
+# =============================================================================
+# Setup build directories (out-of-tree builds)
+# =============================================================================
+
+log_info "Setting up out-of-tree build directories..."
+
+# Create build directories (not copying sources, just build dirs)
+mkdir -p "$BUILD_ROOT" "$TOOLCHAIN_OUTPUT"
+
+# Use extracted sources directly (read-only)
+BINUTILS_SRC_DIR="$BINUTILS_SRC"
+GCC_SRC_DIR="$GCC_SRC"
+LIBC_SRC_DIR="$LIBC_SRC"
+LINUX_SRC_DIR="$LINUX_SRC"
+
+# Create separate build directories for each component
+BINUTILS_BUILD_DIR="$BUILD_ROOT/binutils-build"
+GCC_BUILD_DIR="$BUILD_ROOT/gcc-build"
+LIBC_BUILD_DIR="$BUILD_ROOT/libc-build"
+
+log_success "Build directories ready"
+
+# Create target directories
+mkdir -p "$TOOLCHAIN_OUTPUT/share/info" "$TOOLCHAIN_OUTPUT/share/man"
+mkdir -p "$TOOLCHAIN_OUTPUT/$TARGET"
+
+# Get absolute paths
+TOOLCHAIN_OUTPUT_ABS="$(cd "$TOOLCHAIN_OUTPUT" && pwd)"
+TOOLCHAIN_TARGET_ABS="$TOOLCHAIN_OUTPUT_ABS/$TARGET"
+LINUX_HEADERS_ABS="$(cd "$LINUX_SRC_DIR/include" && pwd)"
+
+# =============================================================================
+# Build binutils
+# =============================================================================
+
+log_info "Building binutils..."
+mkdir -p "$BINUTILS_BUILD_DIR"
+
+pushd "$BINUTILS_BUILD_DIR" > /dev/null
+"$BINUTILS_SRC_DIR/configure" \
+    --target="$TARGET" \
+    --prefix="$TOOLCHAIN_OUTPUT_ABS" \
+    --disable-nls \
+    --disable-werror \
+    --disable-multilib \
+    --infodir="$TOOLCHAIN_OUTPUT_ABS/share/info" \
+    --mandir="$TOOLCHAIN_OUTPUT_ABS/share/man" \
+    --datadir="$TOOLCHAIN_OUTPUT_ABS/share"
+make -j$(nproc 2>/dev/null || echo 4)
+make DESTDIR="" install
+popd > /dev/null
+log_success "binutils built"
+
+# =============================================================================
+# Build GCC (stage 1 - bootstrap)
+# =============================================================================
+
+log_info "Building GCC (stage 1 - bootstrap)..."
+mkdir -p "$GCC_BUILD_DIR"
+
+pushd "$GCC_BUILD_DIR" > /dev/null
+"$GCC_SRC_DIR/configure" \
+    --target="$TARGET" \
+    --prefix="$TOOLCHAIN_OUTPUT_ABS" \
+    --enable-languages=c \
+    --disable-libssp \
+    --disable-libgomp \
+    --disable-libmudflap \
+    --disable-libsanitizer \
+    --disable-libatomic \
+    --disable-libquadmath \
+    --disable-multilib \
+    --with-sysroot="$TOOLCHAIN_TARGET_ABS" \
+    --with-newlib \
+    --disable-shared \
+    --disable-threads \
+    --disable-libstdcxx-pch \
+    --infodir="$TOOLCHAIN_OUTPUT_ABS/share/info" \
+    --mandir="$TOOLCHAIN_OUTPUT_ABS/share/man" \
+    --datadir="$TOOLCHAIN_OUTPUT_ABS/share"
+make -j$(nproc 2>/dev/null || echo 4) all-gcc
+make DESTDIR="" install-gcc
+popd > /dev/null
+log_success "GCC stage 1 built"
+
+# =============================================================================
+# Build libc (musl or glibc)
+# =============================================================================
+
+case "$TOOLCHAIN" in
+    "musl")
+        log_info "Building musl..."
+        
+        if [[ ! -f "$TOOLCHAIN_TARGET_ABS/lib/libc.so" ]]; then
+            mkdir -p "$LIBC_BUILD_DIR"
+            pushd "$LIBC_BUILD_DIR" > /dev/null
+            export PATH="$TOOLCHAIN_OUTPUT_ABS/bin:$PATH"
+            export CC="gcc"
+            export CROSS_COMPILE=""
+            export CFLAGS="-O2"
+            export LDFLAGS=""
+            
+            "$LIBC_SRC_DIR/configure" \
+                --prefix="$TOOLCHAIN_TARGET_ABS" \
+                --disable-shared \
+                --infodir="$TOOLCHAIN_OUTPUT_ABS/share/info" \
+                --mandir="$TOOLCHAIN_OUTPUT_ABS/share/man" \
+                --datadir="$TOOLCHAIN_OUTPUT_ABS/share" \
+                "$TARGET"
+            make -j$(nproc 2>/dev/null || echo 4)
+            make DESTDIR="" install
+            popd > /dev/null
+            log_success "musl built"
+        else
+            log_success "musl already built - skipping"
+        fi
+        ;;
+    "gnu"|"glibc")
+        log_info "Building glibc headers..."
+        mkdir -p "$LIBC_BUILD_DIR"
+        
+        if [[ ! -f "$TOOLCHAIN_TARGET_ABS/lib/libc.so.6" ]]; then
+            pushd "$LIBC_BUILD_DIR" > /dev/null
+            "$LIBC_SRC_DIR/configure" \
+                --target="$TARGET" \
+                --prefix="$TOOLCHAIN_TARGET_ABS" \
+                --with-headers="$LINUX_HEADERS_ABS" \
+                --disable-multilib \
+                --infodir="$TOOLCHAIN_OUTPUT_ABS/share/info" \
+                --mandir="$TOOLCHAIN_OUTPUT_ABS/share/man" \
+                --datadir="$TOOLCHAIN_OUTPUT_ABS/share"
+            make DESTDIR="" install-headers
+            popd > /dev/null
+            log_success "glibc headers installed"
+        else
+            log_success "glibc already built - skipping"
+        fi
+        ;;
+esac
+
+# =============================================================================
 # Verify toolchain
+# =============================================================================
+
 log_info "Verifying toolchain..."
-if [[ -f "$TOOLCHAIN_OUTPUT/bin/$CROSS_COMPILE"gcc ]]; then
-    "$TOOLCHAIN_OUTPUT/bin/$CROSS_COMPILE"gcc --version | head -1
+if [[ -f "$TOOLCHAIN_OUTPUT_ABS/bin/$TARGET-gcc" ]]; then
+    "$TOOLCHAIN_OUTPUT_ABS/bin/$TARGET-gcc" --version | head -1
     log_success "Toolchain verification complete"
 else
     log_error "Toolchain verification failed"
     exit 1
 fi
 
-log_success "Toolchain build complete: $TOOLCHAIN_OUTPUT"
+log_success "$LIBC_TYPE toolchain build complete: $TOOLCHAIN_OUTPUT_ABS"
+

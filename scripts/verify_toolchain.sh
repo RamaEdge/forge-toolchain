@@ -1,64 +1,33 @@
 #!/bin/bash
 # ForgeOS Toolchain Verification Script
 # Verifies that a built toolchain is working correctly
-# Usage: verify_toolchain.sh <arch> <toolchain> <artifacts_dir>
+# Tests compilation, linking, and binary architecture
+# Usage: verify_toolchain.sh [ARCH] [TOOLCHAIN] [ARTIFACTS_DIR]
 
 set -euo pipefail
 
-# Script configuration - Detect project root using git
-# This ensures we find the correct root regardless of script location or invocation directory
-if ! PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
-    # Fallback to script-based detection if not in a git repository
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-    echo "Warning: Not in a git repository. Using fallback project root detection." >&2
-    echo "Project root: $PROJECT_ROOT" >&2
-fi
+# Load common utilities
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/common.sh"
+
+# Detect project root
+detect_project_root
 
 # Parameters
 ARCH="${1:-aarch64}"
 TOOLCHAIN="${2:-musl}"
-ARTIFACTS_DIR="${3:-artifacts}"
+ARTIFACTS_DIR="${3:-$PROJECT_ROOT/artifacts}"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# Get toolchain configuration
+get_toolchain_config "$ARCH" "$TOOLCHAIN" || exit 1
 
-log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1" >&2
-}
-
-log_success() {
-    echo -e "${GREEN}[✓]${NC} $1" >&2
-}
-
-log_warning() {
-    echo -e "${YELLOW}[!]${NC} $1" >&2
-}
-
-log_error() {
-    echo -e "${RED}[✗]${NC} $1" >&2
-}
-
-# Toolchain configuration
+# Toolchain directory
 case "$TOOLCHAIN" in
     "musl")
-        TARGET="$ARCH-linux-musl"
-        CROSS_COMPILE="$TARGET-"
         TOOLCHAIN_DIR="$ARTIFACTS_DIR/$ARCH-musl"
         ;;
     "gnu"|"glibc")
-        TARGET="$ARCH-linux-gnu"
-        CROSS_COMPILE="$TARGET-"
         TOOLCHAIN_DIR="$ARTIFACTS_DIR/$ARCH-gnu"
-        ;;
-    *)
-        log_error "Unknown toolchain: $TOOLCHAIN"
-        log_info "Supported toolchains: musl, gnu, glibc"
-        exit 1
         ;;
 esac
 
@@ -73,110 +42,97 @@ if [[ ! -d "$TOOLCHAIN_DIR" ]]; then
     exit 1
 fi
 
-# Check if environment script exists
-if [[ ! -f "$TOOLCHAIN_DIR/env.sh" ]]; then
-    log_error "Environment script not found: $TOOLCHAIN_DIR/env.sh"
-    exit 1
-fi
+# =============================================================================
+# Set up toolchain environment (no env.sh needed)
+# =============================================================================
 
-# Source the environment script
-log_info "Loading toolchain environment..."
-source "$TOOLCHAIN_DIR/env.sh"
+export PATH="$TOOLCHAIN_DIR/bin:$PATH"
+export CC="$TOOLCHAIN_DIR/bin/$TARGET-gcc"
+export CXX="$TOOLCHAIN_DIR/bin/$TARGET-g++"
+export AR="$TOOLCHAIN_DIR/bin/$TARGET-ar"
+export STRIP="$TOOLCHAIN_DIR/bin/$TARGET-strip"
+export RANLIB="$TOOLCHAIN_DIR/bin/$TARGET-ranlib"
+export NM="$TOOLCHAIN_DIR/bin/$TARGET-nm"
+export OBJCOPY="$TOOLCHAIN_DIR/bin/$TARGET-objcopy"
+export OBJDUMP="$TOOLCHAIN_DIR/bin/$TARGET-objdump"
+export READELF="$TOOLCHAIN_DIR/bin/$TARGET-readelf"
+export LD="$TOOLCHAIN_DIR/bin/$TARGET-ld"
+export AS="$TOOLCHAIN_DIR/bin/$TARGET-as"
 
+# =============================================================================
 # Verify toolchain binaries
-verify_binary() {
-    local binary="$1"
-    local name="$2"
-    local expected_target="$3"
-    
-    if [[ -f "$binary" ]]; then
-        if [[ -x "$binary" ]]; then
-            # Check if binary is executable and returns version info
-            if "$binary" --version >/dev/null 2>&1; then
-                local version="$("$binary" --version | head -n1)"
-                log_success "$name: $version"
-                
-                # Check target architecture
-                if echo "$version" | grep -q "$expected_target"; then
-                    log_success "$name target: $expected_target"
-                else
-                    log_warning "$name target: unexpected (expected: $expected_target)"
-                fi
-                return 0
-            else
-                log_error "$name: not executable or broken"
-                return 1
-            fi
-        else
-            log_error "$name: not executable"
-            return 1
-        fi
-    else
-        log_error "$name: not found"
-        return 1
-    fi
-}
+# =============================================================================
 
-# Verify all toolchain binaries
 log_info "Verifying toolchain binaries..."
 echo ""
 
-local errors=0
+errors=0
 
-# Core compilers
-if ! verify_binary "$CC" "GCC" "$TARGET"; then
-    ((errors++))
-fi
+# Helper function to verify binary
+verify_binary() {
+    local binary="$1"
+    local name="$2"
+    
+    if [[ ! -f "$binary" ]]; then
+        log_error "$name: not found"
+        return 1
+    fi
+    
+    if [[ ! -x "$binary" ]]; then
+        log_error "$name: not executable"
+        return 1
+    fi
+    
+    if ! "$binary" --version >/dev/null 2>&1; then
+        log_error "$name: not working"
+        return 1
+    fi
+    
+    local version="$("$binary" --version 2>/dev/null | head -n1)"
+    log_success "$name: $version"
+    return 0
+}
 
-if ! verify_binary "$CXX" "G++" "$TARGET"; then
-    ((errors++))
-fi
-
-# Build tools
-if ! verify_binary "$AR" "AR" "$TARGET"; then
-    ((errors++))
-fi
-
-if ! verify_binary "$STRIP" "STRIP" "$TARGET"; then
-    ((errors++))
-fi
-
-if ! verify_binary "$RANLIB" "RANLIB" "$TARGET"; then
-    ((errors++))
-fi
-
-if ! verify_binary "$NM" "NM" "$TARGET"; then
-    ((errors++))
-fi
-
-if ! verify_binary "$OBJCOPY" "OBJCOPY" "$TARGET"; then
-    ((errors++))
-fi
-
-if ! verify_binary "$OBJDUMP" "OBJDUMP" "$TARGET"; then
-    ((errors++))
-fi
-
-if ! verify_binary "$READELF" "READELF" "$TARGET"; then
-    ((errors++))
-fi
+# Verify all toolchain binaries
+verify_binary "$CC" "GCC" || ((errors++))
+verify_binary "$CXX" "G++" || ((errors++))
+verify_binary "$AR" "AR" || ((errors++))
+verify_binary "$LD" "LD" || ((errors++))
+verify_binary "$AS" "AS" || ((errors++))
+verify_binary "$STRIP" "STRIP" || ((errors++))
+verify_binary "$RANLIB" "RANLIB" || ((errors++))
+verify_binary "$NM" "NM" || ((errors++))
+verify_binary "$OBJCOPY" "OBJCOPY" || ((errors++))
+verify_binary "$OBJDUMP" "OBJDUMP" || ((errors++))
+verify_binary "$READELF" "READELF" || ((errors++))
 
 echo ""
 
+# =============================================================================
 # Test compilation
+# =============================================================================
+
 log_info "Testing toolchain compilation..."
 
-# Create test source files
+# Create test directory
 TEST_DIR="/tmp/forgeos-toolchain-test-$$"
 mkdir -p "$TEST_DIR"
+
+# Cleanup function
+cleanup_test() {
+    rm -rf "$TEST_DIR"
+}
+trap cleanup_test EXIT
 
 # C test program
 cat > "$TEST_DIR/test.c" << 'EOF'
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 int main() {
-    printf("Hello from ForgeOS %s toolchain!\n", "musl");
+    printf("Hello from ForgeOS toolchain!\n");
+    printf("Target: %s\n", "TEST_ARCH");
     return 0;
 }
 EOF
@@ -185,10 +141,18 @@ EOF
 cat > "$TEST_DIR/test.cpp" << 'EOF'
 #include <iostream>
 #include <string>
+#include <vector>
 
 int main() {
     std::string message = "Hello from ForgeOS C++ toolchain!";
+    std::vector<std::string> words = {"This", "is", "a", "test"};
+    
     std::cout << message << std::endl;
+    for (const auto& word : words) {
+        std::cout << word << " ";
+    }
+    std::cout << std::endl;
+    
     return 0;
 }
 EOF
@@ -212,52 +176,45 @@ else
 fi
 
 # Test static linking
-log_info "Testing static linking..."
-if [[ -f "$TEST_DIR/test_c" ]] && [[ -f "$TEST_DIR/test_cpp" ]]; then
-    # Check if binaries are statically linked
+if [[ -f "$TEST_DIR/test_c" ]]; then
+    log_info "Testing static linking..."
     if ldd "$TEST_DIR/test_c" 2>/dev/null | grep -q "not a dynamic executable"; then
         log_success "Static linking: passed"
     else
-        log_warning "Static linking: may not be fully static"
+        log_warning "Static linking: binary may not be fully static"
     fi
-else
-    log_warning "Static linking: cannot test (compilation failed)"
 fi
 
 # Test cross-compilation target
-log_info "Testing cross-compilation target..."
 if [[ -f "$TEST_DIR/test_c" ]]; then
-    # Check if binary is for the correct target
+    log_info "Testing cross-compilation target..."
     if file "$TEST_DIR/test_c" | grep -q "$ARCH"; then
         log_success "Cross-compilation target: $ARCH"
     else
-        log_warning "Cross-compilation target: unexpected"
+        log_warning "Cross-compilation target: unexpected architecture"
     fi
-else
-    log_warning "Cross-compilation target: cannot test (compilation failed)"
 fi
 
-# Clean up test files
-rm -rf "$TEST_DIR"
-
-echo ""
-
-# Check toolchain info file
-if [[ -f "$TOOLCHAIN_DIR/toolchain.info" ]]; then
-    log_success "Toolchain info file: found"
-    log_info "Toolchain info: $TOOLCHAIN_DIR/toolchain.info"
+# Test simple build flags
+log_info "Testing build flags..."
+if echo 'int main(){return 0;}' | "$CC" -x c - -o "$TEST_DIR/test_flags" 2>/dev/null; then
+    log_success "Build flags: working"
 else
-    log_warning "Toolchain info file: not found"
+    log_error "Build flags: failed"
+    ((errors++))
 fi
 
+# =============================================================================
 # Summary
+# =============================================================================
+
 echo ""
 if [[ $errors -eq 0 ]]; then
     log_success "Toolchain verification completed successfully!"
     log_info "Toolchain: $TOOLCHAIN_DIR"
-    log_info "Environment: $TOOLCHAIN_DIR/env.sh"
     log_info "Target: $TARGET"
-    log_info "Cross-compile: $CROSS_COMPILE"
+    log_info "Cross-compile prefix: $CROSS_COMPILE"
+    log_info "All tests passed!"
     exit 0
 else
     log_error "Toolchain verification failed with $errors errors"

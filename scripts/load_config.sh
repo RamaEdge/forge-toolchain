@@ -1,12 +1,10 @@
 #!/bin/bash
 # ForgeOS Toolchain Configuration Loader
-# Loads build.json configuration for toolchain builds
+# Loads build.json configuration
 # Usage: source scripts/load_config.sh
 
 # Script configuration - Detect project root using git
-# This ensures we find the correct root regardless of script location or invocation directory
 if ! PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
-    # Fallback to script-based detection if not in a git repository
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
     echo "Warning: Not in a git repository. Using fallback project root detection." >&2
@@ -32,36 +30,33 @@ fi
 # Load configuration variables
 export FORGEOS_VERSION=$(jq -r '.metadata.version // "0.1.0"' "$BUILD_JSON")
 export FORGEOS_DESCRIPTION=$(jq -r '.metadata.description // "ForgeOS Toolchain Build Configuration"' "$BUILD_JSON")
-export FORGEOS_LAST_UPDATED=$(jq -r '.metadata.last_updated // "unknown"' "$BUILD_JSON")
 
 # Build directories
 export BUILD_DIR=$(jq -r '.build.directories.build' "$BUILD_JSON")
 export ARTIFACTS_DIR=$(jq -r '.build.directories.output' "$BUILD_JSON")
 export PACKAGES_DIR=$(jq -r '.build.directories.packages' "$BUILD_JSON")
 
+# Make paths absolute
+BUILD_DIR="$PROJECT_ROOT/$BUILD_DIR"
+ARTIFACTS_DIR="$PROJECT_ROOT/$ARTIFACTS_DIR"
+PACKAGES_DIR="$PROJECT_ROOT/$PACKAGES_DIR"
+
 # Architecture configuration
 export DEFAULT_ARCH=$(jq -r '.build.architecture.default' "$BUILD_JSON")
 export SUPPORTED_ARCHS=$(jq -r '.build.architecture.supported[]' "$BUILD_JSON" | tr '\n' ' ')
-
-# Toolchain configuration (derived from packages)
-export TOOLCHAIN_TYPES=$(jq -r '.build.packages | to_entries[] | .value.toolchain' "$BUILD_JSON" | sort -u | tr '\n' ' ')
-export DEFAULT_TOOLCHAIN="musl"
-
-# Toolchain versions (derived from packages section)
-export BINUTILS_VERSION=$(jq -r '.build.packages.binutils.version' "$BUILD_JSON")
-export GCC_VERSION=$(jq -r '.build.packages.gcc.version' "$BUILD_JSON")
-export GLIBC_VERSION=$(jq -r '.build.packages.glibc.version' "$BUILD_JSON")
-export MUSL_VERSION=$(jq -r '.build.packages.musl.version' "$BUILD_JSON")
-export MUSL_CROSS_MAKE_VERSION=$(jq -r '.build.packages."musl-cross-make".version' "$BUILD_JSON")
-export LINUX_VERSION=$(jq -r '.build.packages.linux.version' "$BUILD_JSON")
 
 # Repository configuration
 export REPO_NAME=$(jq -r '.build.repository.name' "$BUILD_JSON")
 export REPO_VERSION=$(jq -r '.build.repository.version' "$BUILD_JSON")
 export FORGE_PACKAGES_URL=$(jq -r '.build.repository.forge_packages_url' "$BUILD_JSON")
+export FORGE_PACKAGES_VERSION=$(jq -r '.build.repository.forge_packages_version' "$BUILD_JSON")
 
 # Security configuration
 export CHECKSUM_VERIFICATION=$(jq -r '.build.security.checksum_verification' "$BUILD_JSON")
+
+# Toolchain configuration
+export TOOLCHAIN_TYPES="musl gnu"
+export DEFAULT_TOOLCHAIN="musl"
 
 # Platform configuration
 export CURRENT_PLATFORM=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -115,13 +110,17 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     echo "  Toolchain: $TOOLCHAIN"
     echo "  Target: $TARGET"
     echo "  Cross-compile: $CROSS_COMPILE"
-    echo "  Build directory: $BUILD_DIR"
-    echo "  Artifacts directory: $ARTIFACTS_DIR"
-    echo "  Output directory: $OUTPUT_DIR"
+    echo ""
+    echo "Directories:"
+    echo "  Build: $BUILD_DIR"
+    echo "  Artifacts: $ARTIFACTS_DIR"
+    echo "  Packages: $PACKAGES_DIR"
+    echo "  Output: $OUTPUT_DIR"
+    echo ""
+    echo "Platform:"
     echo "  Platform: $CURRENT_PLATFORM"
     echo "  Make jobs: $MAKE_JOBS"
     echo "  Make command: $MAKE_CMD"
-    echo "  Reproducible build: $REPRODUCIBLE_BUILD"
     echo "  Source date epoch: $SOURCE_DATE_EPOCH"
     echo ""
     echo "Configuration loaded successfully!"
