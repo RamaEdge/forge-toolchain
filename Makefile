@@ -111,22 +111,19 @@ clean-all: clean
 	@echo "Cleaning all artifacts..."
 	@rm -rf $(ARTIFACTS_DIR)
 	@echo "All artifacts cleaned"
+	@rm -rf packages/extracted
+	@rm -rf packages/downloads
+	
 
 # =============================================================================
-# TOOLCHAIN VERIFICATION AND TESTING
+# TOOLCHAIN VERIFICATION
 # =============================================================================
 
-# Verify toolchain build
+# Verify toolchain build (includes testing)
 verify: toolchain
 	@echo "Verifying $(TOOLCHAIN) toolchain..."
 	@./scripts/verify_toolchain.sh $(ARCH) $(TOOLCHAIN) $(ARTIFACTS_DIR)
 	@echo "Toolchain verification complete"
-
-# Test toolchain
-test: toolchain
-	@echo "Testing $(TOOLCHAIN) toolchain..."
-	@./scripts/test_toolchain.sh $(ARCH) $(TOOLCHAIN) $(ARTIFACTS_DIR)
-	@echo "Toolchain test complete"
 
 # =============================================================================
 # PACKAGE MANAGEMENT
@@ -138,64 +135,15 @@ download-packages:
 	@./scripts/download_packages.sh
 	@echo "Package download complete"
 
-# Download packages from specific release version
-# Usage: make download-packages-release VERSION=v1.0.1
-download-packages-release:
-	@if [ -z "$(VERSION)" ]; then \
-		echo "VERSION is required: make download-packages-release VERSION=v1.0.1"; \
-		exit 1; \
-	fi
-	@echo "Downloading packages from forge-packages release $(VERSION)..."
-	@./scripts/download_packages.sh "" "$(VERSION)"
-	@echo "Package download complete for release $(VERSION)"
-
-# Download specific package
-# Usage: make download-package PACKAGE=binutils
-download-package:
-	@if [ -z "$(PACKAGE)" ]; then \
-		echo "PACKAGE is required: make download-package PACKAGE=binutils"; \
-		exit 1; \
-	fi
-	@echo "Downloading package: $(PACKAGE)..."
-	@./scripts/download_packages.sh "$(PACKAGE)"
-	@echo "Package download complete: $(PACKAGE)"
-
-# List available packages
-list-packages:
-	@echo "Available packages from build.json:"
-	@jq -r '.build.packages | keys[]' build.json | sort
-	@echo ""
-	@echo "Total packages: $$(jq '.build.packages | length' build.json)"
-
-# Clean downloaded packages
-clean-packages:
-	@echo "Cleaning downloaded packages..."
-	@rm -rf packages/downloads
-	@echo "Downloaded packages cleaned"
-
 # =============================================================================
 # RELEASE AND DISTRIBUTION
 # =============================================================================
 
-# Create a release archive of built toolchains (both musl and gnu)
-# Creates minimal archives with only essential files and uploads to GitHub
-# After release, artifacts folder is cleaned up
-# Usage: make release-toolchain VERSION=v0.1.0 [ARCH=aarch64] [--no-cleanup] [--no-build]
-release-toolchain:
-	@if [ -z "$(VERSION)" ]; then \
-		echo "$(RED)[✗]$(NC) VERSION is required: make release-toolchain VERSION=v0.1.0"; \
-		exit 1; \
-	fi
-	@./scripts/create_release.sh "$(VERSION)" --arch "$(ARCH)"
-
-# Upload existing toolchain release to GitHub
-# Usage: make upload-toolchain VERSION=v0.1.0
-upload-toolchain:
-	@if [ -z "$(VERSION)" ]; then \
-		echo "$(RED)[✗]$(NC) VERSION is required: make upload-toolchain VERSION=v0.1.0"; \
-		exit 1; \
-	fi
-	@./scripts/upload_release.sh "$(VERSION)" --arch "$(ARCH)"
+# Create and upload release archive to GitHub
+# Reads version from build.json, creates minimal archives, and uploads
+# Usage: make release
+release:
+	@./scripts/create_release.sh
 
 # =============================================================================
 # DEPENDENCY CHECKS
@@ -219,18 +167,12 @@ help:
 	@echo "  toolchain            Build specific toolchain (default: musl)"
 	@echo "  all-toolchains       Build all toolchains (musl and gnu)"
 	@echo "  verify               Build and verify toolchain"
-	@echo "  test                 Build and test toolchain"
 	@echo ""
 	@echo "$(BLUE)Package Management:$(NC)"
-	@echo "  download-packages              Download all packages (default version)"
-	@echo "  download-packages-release      Download packages from release VERSION=v1.0.1"
-	@echo "  download-package PACKAGE=name  Download specific package"
-	@echo "  list-packages                  List available packages"
-	@echo "  clean-packages                 Clean downloaded packages"
+	@echo "  download-packages    Download all packages from forge-packages"
 	@echo ""
-	@echo "$(BLUE)Release and Distribution:$(NC)"
-	@echo "  release-toolchain VERSION=v0.1.0      Create toolchain release archive"
-	@echo "  upload-toolchain VERSION=v0.1.0  Upload release to GitHub"
+	@echo "$(BLUE)Release:$(NC)"
+	@echo "  release              Create and upload GitHub release"
 	@echo ""
 	@echo "$(BLUE)Cleanup:$(NC)"
 	@echo "  clean                Clean build artifacts and packages"
@@ -249,12 +191,11 @@ help:
 	@echo "  VERSION=tag     Release/package version"
 	@echo ""
 	@echo "$(BLUE)Examples:$(NC)"
-	@echo "  make toolchain                     # Build musl/aarch64"
+	@echo "  make toolchain                            # Build musl/aarch64"
 	@echo "  make toolchain ARCH=x86_64 TOOLCHAIN=gnu  # Build gnu/x86_64"
-	@echo "  make download-packages             # Download all packages"
-	@echo "  make verify                        # Build and verify"
-	@echo "  make release-toolchain VERSION=v0.1.0     # Create release"
-	@echo "  make upload-toolchain VERSION=v0.1.0  # Upload release"
+	@echo "  make download-packages                    # Download all packages"
+	@echo "  make verify                               # Build and verify"
+	@echo "  make release                              # Create GitHub release"
 
 # Show current configuration
 config:
@@ -271,4 +212,4 @@ config:
 	@echo "$(BLUE)Package Configuration:$(NC)"
 	@jq '.build.repository' build.json
 
-.PHONY: all toolchain all-toolchains clean clean-all verify test download-packages download-packages-release download-package list-packages clean-packages release-toolchain upload-toolchain check-dependencies config help
+.PHONY: all toolchain all-toolchains clean clean-all verify download-packages release check-dependencies config help

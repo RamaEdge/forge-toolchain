@@ -5,41 +5,15 @@
 
 set -euo pipefail
 
-# Script configuration - Detect project root using git
-# This ensures we find the correct root regardless of script location or invocation directory
-if ! PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
-    # Fallback to script-based detection if not in a git repository
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-    echo "Warning: Not in a git repository. Using fallback project root detection." >&2
-    echo "Project root: $PROJECT_ROOT" >&2
-fi
+# Load common utilities
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/common.sh"
+
+# Detect project root
+detect_project_root
 
 # Parameters
 PLATFORM="${1:-$(uname -s | tr '[:upper:]' '[:lower:]')}"
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1" >&2
-}
-
-log_success() {
-    echo -e "${GREEN}[✓]${NC} $1" >&2
-}
-
-log_warning() {
-    echo -e "${YELLOW}[!]${NC} $1" >&2
-}
-
-log_error() {
-    echo -e "${RED}[✗]${NC} $1" >&2
-}
 
 # Check if a command exists
 check_command() {

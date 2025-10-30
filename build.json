@@ -1,13 +1,14 @@
 {
   "metadata": {
-    "version": "0.1.0",
-    "description": "ForgeOS Toolchain Build Configuration - Single Source of Truth for Packages"
+    "version": "1.0.1",
+    "description": "ForgeOS Toolchain Build Configuration"
   },
   "build": {
     "directories": {
       "build": "build",
       "output": "artifacts",
-      "packages": "packages/downloads"
+      "packages": "packages/downloads",
+      "extracted": "packages/extracted"
     },
     "architecture": {
       "default": "aarch64",
@@ -18,62 +19,18 @@
       "version": "0.1.0",
       "description": "Toolchain repository - uses packages from forge-packages",
       "forge_packages_url": "https://github.com/ramaedge/forge-packages.git",
-      "forge_packages_releases": "https://github.com/RamaEdge/forge-packages/releases",
       "forge_packages_version": "v1.0.2"
-    },
-    "packages": {
-      "musl-cross-make": {
-        "version": "0.9.11",
-        "filename": "musl-cross-make-0.9.11.tar.gz",
-        "category": "toolchain",
-        "toolchain": "musl",
-        "description": "Self-contained musl cross-compilation tool",
-        "url": "https://github.com/RamaEdge/forge-packages/releases/download/v1.0.1/musl-cross-make-0.9.11.tar.gz"
-      },
-      "binutils": {
-        "version": "2.45",
-        "filename": "binutils-2.45.tar.xz",
-        "category": "toolchain",
-        "toolchain": "gnu",
-        "description": "GNU binary utilities (assembler, linker, etc)",
-        "url": "https://github.com/RamaEdge/forge-packages/releases/download/v1.0.1/binutils-2.45.tar.xz"
-      },
-      "gcc": {
-        "version": "15.2.0",
-        "filename": "gcc-15.2.0.tar.xz",
-        "category": "toolchain",
-        "toolchain": "gnu",
-        "description": "GNU C/C++ compiler",
-        "url": "https://github.com/RamaEdge/forge-packages/releases/download/v1.0.1/gcc-15.2.0.tar.xz"
-      },
-      "glibc": {
-        "version": "2.42",
-        "filename": "glibc-2.42.tar.xz",
-        "category": "toolchain",
-        "toolchain": "gnu",
-        "description": "GNU C library",
-        "url": "https://github.com/RamaEdge/forge-packages/releases/download/v1.0.1/glibc-2.42.tar.xz"
-      },
-      "musl": {
-        "version": "1.2.5",
-        "filename": "musl-1.2.5.tar.gz",
-        "category": "toolchain",
-        "toolchain": "musl",
-        "description": "musl C library",
-        "url": "https://github.com/RamaEdge/forge-packages/releases/download/v1.0.1/musl-1.2.5.tar.gz"
-      },
-      "linux": {
-        "version": "6.12.49",
-        "filename": "linux-6.12.49.tar.xz",
-        "category": "toolchain",
-        "toolchain": "gnu",
-        "description": "Linux kernel headers",
-        "url": "https://github.com/RamaEdge/forge-packages/releases/download/v1.0.1/linux-6.12.49.tar.xz"
-      }
     },
     "security": {
       "checksum_verification": true,
       "description": "All packages from forge-packages are signed and verified"
+    },
+    "toolchain": {
+      "required_packages": ["binutils", "gcc", "linux"],
+      "libc": {
+        "musl": ["musl"],
+        "gnu": ["glibc"]
+      }
     }
   }
 }
