@@ -112,7 +112,7 @@ GCC_VERSION=$(detect_package_version "gcc-*")
 MUSL_VERSION=$(detect_package_version "musl-*")
 GLIBC_VERSION=$(detect_package_version "glibc-*")
 LINUX_VERSION=$(detect_package_version "linux-*")
-FORGE_PACKAGES_VERSION=$(jq -r '.build.repository.forge_packages_version' "$BUILD_JSON")
+FORGE_PACKAGES_VERSION=$(jq -r '.build.forge_packages_version' "$BUILD_JSON")
 
 log_info "Package versions detected:"
 log_info "  binutils: $BINUTILS_VERSION"
