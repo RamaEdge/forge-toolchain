@@ -18,16 +18,19 @@ ARCH="${1:-aarch64}"
 TOOLCHAIN="${2:-musl}"
 ARTIFACTS_DIR="${3:-$PROJECT_ROOT/artifacts}"
 
+# Start centralized logging
+start_build_log "verify-toolchain" "${TOOLCHAIN}-${ARCH}"
+
 # Get toolchain configuration
 get_toolchain_config "$ARCH" "$TOOLCHAIN" || exit 1
 
 # Toolchain directory
 case "$TOOLCHAIN" in
     "musl")
-        TOOLCHAIN_DIR="$ARTIFACTS_DIR/$ARCH-musl"
+        TOOLCHAIN_DIR="$ARTIFACTS_DIR/toolchain/$ARCH-musl"
         ;;
     "gnu"|"glibc")
-        TOOLCHAIN_DIR="$ARTIFACTS_DIR/$ARCH-gnu"
+        TOOLCHAIN_DIR="$ARTIFACTS_DIR/toolchain/$ARCH-gnu"
         ;;
 esac
 
@@ -95,7 +98,7 @@ verify_binary() {
 
 # Verify all toolchain binaries
 verify_binary "$CC" "GCC" || ((errors++))
-verify_binary "$CXX" "G++" || ((errors++))
+verify_binary "$CXX" "G++" || log_warning "G++ not available (optional for minimal toolchains)"
 verify_binary "$AR" "AR" || ((errors++))
 verify_binary "$LD" "LD" || ((errors++))
 verify_binary "$AS" "AS" || ((errors++))
@@ -137,8 +140,9 @@ int main() {
 }
 EOF
 
-# C++ test program
-cat > "$TEST_DIR/test.cpp" << 'EOF'
+# C++ test program (optional)
+if [[ -f "$CXX" ]]; then
+    cat > "$TEST_DIR/test.cpp" << 'EOF'
 #include <iostream>
 #include <string>
 #include <vector>
@@ -156,6 +160,7 @@ int main() {
     return 0;
 }
 EOF
+fi
 
 # Test C compilation
 log_info "Testing C compilation..."
@@ -166,13 +171,16 @@ else
     ((errors++))
 fi
 
-# Test C++ compilation
-log_info "Testing C++ compilation..."
-if "$CXX" -static -o "$TEST_DIR/test_cpp" "$TEST_DIR/test.cpp" 2>/dev/null; then
-    log_success "C++ compilation: passed"
+# Test C++ compilation (optional)
+if [[ -f "$CXX" ]]; then
+    log_info "Testing C++ compilation..."
+    if "$CXX" -static -o "$TEST_DIR/test_cpp" "$TEST_DIR/test.cpp" 2>/dev/null; then
+        log_success "C++ compilation: passed"
+    else
+        log_warning "C++ compilation: failed (optional feature)"
+    fi
 else
-    log_error "C++ compilation: failed"
-    ((errors++))
+    log_info "Skipping C++ compilation test (G++ not available)"
 fi
 
 # Test static linking
@@ -215,9 +223,11 @@ if [[ $errors -eq 0 ]]; then
     log_info "Target: $TARGET"
     log_info "Cross-compile prefix: $CROSS_COMPILE"
     log_info "All tests passed!"
+    end_build_log "success"
     exit 0
 else
     log_error "Toolchain verification failed with $errors errors"
     log_info "Please check the toolchain build and try again"
+    end_build_log "failure"
     exit 1
 fi

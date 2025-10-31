@@ -31,7 +31,7 @@ make toolchain TOOLCHAIN=gnu  # glibc
 make verify
 
 # 5. Use
-export PATH="$(pwd)/artifacts/aarch64-musl/bin:$PATH"
+export PATH="$(pwd)/artifacts/toolchain/aarch64-musl/bin:$PATH"
 aarch64-linux-musl-gcc --version
 ```
 
@@ -89,7 +89,7 @@ Used as submodule in main ForgeOS repository:
 # In forge-os
 git submodule update --init toolchains
 make -C toolchains toolchain
-source toolchains/artifacts/aarch64-musl/env.sh
+source toolchains/artifacts/toolchain/aarch64-musl/env.sh
 make kernel
 ```
 

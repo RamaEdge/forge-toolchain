@@ -38,6 +38,9 @@ FORGE_PACKAGES_VERSION=$(jq -r '.build.forge_packages_version // "v1.0.2"' "$BUI
 PACKAGES_DIR="$PROJECT_ROOT/$(jq -r '.build.directories.packages' "$BUILD_JSON")"
 EXTRACTED_DIR="$PROJECT_ROOT/$(jq -r '.build.directories.extracted' "$BUILD_JSON")"
 
+# Start centralized logging
+start_build_log "download-packages" "$FORGE_PACKAGES_VERSION"
+
 log_info "ForgeOS Toolchain Package Download System"
 log_info "Repository: $FORGE_PACKAGES_REPO"
 log_info "Version: $FORGE_PACKAGES_VERSION"
@@ -149,6 +152,10 @@ log_info "Extracted to: $EXTRACTED_DIR"
 echo ""
 if [[ $failed_count -gt 0 ]]; then
     log_error "Some packages failed to extract!"
+    end_build_log "failure"
     exit 1
 fi
 log_success "Packages ready for toolchain builds!"
+
+# End logging
+end_build_log "success"

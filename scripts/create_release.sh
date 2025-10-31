@@ -86,6 +86,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Start centralized logging
+start_build_log "create-release" "v${VERSION}"
+
 log_info "Creating toolchain release: v$VERSION"
 log_info "Architecture: $ARCH"
 log_info "Toolchains: ${TOOLCHAINS[@]}"
@@ -159,7 +162,7 @@ trap 'cleanup_temp_dirs' EXIT
 for toolchain in "${TOOLCHAINS[@]}"; do
     log_info "Processing $toolchain toolchain..."
     
-    OUTPUT_DIR="$ARTIFACTS_DIR/${ARCH}-${toolchain}"
+    OUTPUT_DIR="$ARTIFACTS_DIR/toolchain/${ARCH}-${toolchain}"
     
     if [[ ! -d "$OUTPUT_DIR" ]]; then
         log_error "Toolchain not found at: $OUTPUT_DIR"
@@ -396,4 +399,6 @@ echo ""
 log_success "Toolchain release v$VERSION complete!"
 log_info "Share this URL: https://github.com/$REPO_URL/releases/tag/v$VERSION"
 
+# End logging
+end_build_log "success"
 exit 0

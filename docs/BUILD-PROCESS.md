@@ -59,12 +59,12 @@ This allows version changes without script updates.
 ### musl Toolchain
 - **Target**: `aarch64-linux-musl`
 - **Libc**: musl (static linking)
-- **Output**: `artifacts/aarch64-musl/`
+- **Output**: `artifacts/toolchain/aarch64-musl/`
 
 ### glibc Toolchain
 - **Target**: `aarch64-linux-gnu`
 - **Libc**: glibc (dynamic linking)
-- **Output**: `artifacts/aarch64-gnu/`
+- **Output**: `artifacts/toolchain/aarch64-gnu/`
 
 ## Directory Structure
 
@@ -81,9 +81,10 @@ forge-toolchain/
 ├── build/
 │   └── {libc}-toolchain/       # Build workspace
 └── artifacts/
-    └── {arch}-{libc}/          # Final toolchain
-        ├── bin/                # Toolchain binaries
-        └── {arch}-linux-{libc}/  # Target sysroot
+    └── toolchain/              # All toolchains
+        └── {arch}-{libc}/      # Final toolchain
+            ├── bin/            # Toolchain binaries
+            └── {arch}-linux-{libc}/  # Target sysroot
 ```
 
 ## Helper Scripts
@@ -143,4 +144,5 @@ make download-packages
 ### Check Logs
 
 Build logs are in `build/{libc}-toolchain/`.
+
 
