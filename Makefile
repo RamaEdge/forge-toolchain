@@ -72,26 +72,14 @@ toolchain: check-dependencies
 		exit 1; \
 	fi
 
-# Build all toolchains (musl and gnu for both architectures)
+# Build all toolchains (musl and gnu for current architecture)
 all-toolchains: check-dependencies
-	@echo "Building all toolchains..."
+	@echo "Building all toolchains for $(ARCH)..."
 	@echo "$(BLUE)[1/2]$(NC) Building musl toolchain..."
-	LOG_TO_FILE=1 ./scripts/build_toolchain.sh $(ARCH) musl
-	@if [ -f "$(ARTIFACTS_DIR)/toolchain/$(ARCH)-musl/bin/$(ARCH)-linux-musl-gcc" ]; then \
-		echo "$(GREEN)[✓]$(NC) musl toolchain built successfully"; \
-	else \
-		echo "$(RED)[✗]$(NC) ERROR: musl toolchain not found"; \
-		exit 1; \
-	fi
+	@$(MAKE) toolchain TOOLCHAIN=musl
 	@echo ""
 	@echo "$(BLUE)[2/2]$(NC) Building glibc toolchain..."
-	LOG_TO_FILE=1 ./scripts/build_toolchain.sh $(ARCH) gnu
-	@if [ -f "$(ARTIFACTS_DIR)/toolchain/$(ARCH)-gnu/bin/$(ARCH)-linux-gnu-gcc" ]; then \
-		echo "$(GREEN)[✓]$(NC) glibc toolchain built successfully"; \
-	else \
-		echo "$(RED)[✗]$(NC) ERROR: glibc toolchain not found"; \
-		exit 1; \
-	fi
+	@$(MAKE) toolchain TOOLCHAIN=gnu
 	@echo ""
 	@echo "$(GREEN)[✓]$(NC) All toolchains built successfully"
 	@echo ""

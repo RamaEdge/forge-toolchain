@@ -15,12 +15,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 detect_project_root
 . "$PROJECT_ROOT/scripts/load_config.sh"
 
-# Parameters from command line (for logging before they're validated)
+# Parameters from command line (fallback if not exported by Makefile)
 ARCH_PARAM="${1:-aarch64}"
 TOOLCHAIN_PARAM="${2:-musl}"
-
-# Start centralized logging
-start_build_log "build-toolchain" "${TOOLCHAIN_PARAM}-${ARCH_PARAM}"
 
 # Validate Makefile provides required variables
 : "${OUTPUT_DIR:?ERROR: Must be called via Makefile}"
@@ -34,18 +31,21 @@ case "$TOOLCHAIN" in
     musl) 
         LIBC_TYPE="musl"
         LIBC_PATTERN="musl-*"
-        TARGET="$ARCH-linux-musl"
+        TARGET="${TARGET:-$ARCH-linux-musl}"
         ;;
     gnu|glibc) 
         LIBC_TYPE="glibc"
         LIBC_PATTERN="glibc-*"
-        TARGET="$ARCH-linux-gnu"
+        TARGET="${TARGET:-$ARCH-linux-gnu}"
         ;;
     *) 
         log_error "Unknown toolchain: $TOOLCHAIN"
         exit 1
         ;;
 esac
+
+# Start centralized logging (after we have the correct ARCH and TOOLCHAIN values)
+start_build_log "build-toolchain" "${TOOLCHAIN}-${ARCH}"
 
 # Build paths
 BUILD_ROOT="$BUILD_DIR/${LIBC_TYPE}-toolchain"
