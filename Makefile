@@ -31,11 +31,11 @@ SOURCE_DATE_EPOCH ?= $(shell date +%s)
 ifeq ($(TOOLCHAIN),musl)
     TARGET := $(ARCH)-linux-musl
     CROSS_COMPILE := $(TARGET)-
-    OUTPUT_DIR := $(ARTIFACTS_DIR)/$(ARCH)-musl
+    OUTPUT_DIR := $(ARTIFACTS_DIR)/toolchain/$(ARCH)-musl
 else ifeq ($(TOOLCHAIN),gnu)
     TARGET := $(ARCH)-linux-gnu
     CROSS_COMPILE := $(TARGET)-
-    OUTPUT_DIR := $(ARTIFACTS_DIR)/$(ARCH)-gnu
+    OUTPUT_DIR := $(ARTIFACTS_DIR)/toolchain/$(ARCH)-gnu
 else
     $(error Unknown toolchain: $(TOOLCHAIN). Supported: musl, gnu)
 endif
@@ -64,7 +64,7 @@ all: download-packages toolchain
 # Build specific toolchain
 toolchain: check-dependencies
 	@echo "Building $(TOOLCHAIN) toolchain for $(ARCH)..."
-	@./scripts/build_toolchain.sh $(ARCH) $(TOOLCHAIN)
+	@LOG_TO_FILE=1 ./scripts/build_toolchain.sh $(ARCH) $(TOOLCHAIN)
 	@if [ -f "$(OUTPUT_DIR)/bin/$(TARGET)-gcc" ]; then \
 		echo "$(GREEN)[✓]$(NC) Toolchain build complete: $(OUTPUT_DIR)"; \
 	else \
@@ -76,8 +76,8 @@ toolchain: check-dependencies
 all-toolchains: check-dependencies
 	@echo "Building all toolchains..."
 	@echo "$(BLUE)[1/2]$(NC) Building musl toolchain..."
-	./scripts/build_toolchain.sh $(ARCH) musl
-	@if [ -f "$(ARTIFACTS_DIR)/$(ARCH)-musl/bin/$(ARCH)-linux-musl-gcc" ]; then \
+	LOG_TO_FILE=1 ./scripts/build_toolchain.sh $(ARCH) musl
+	@if [ -f "$(ARTIFACTS_DIR)/toolchain/$(ARCH)-musl/bin/$(ARCH)-linux-musl-gcc" ]; then \
 		echo "$(GREEN)[✓]$(NC) musl toolchain built successfully"; \
 	else \
 		echo "$(RED)[✗]$(NC) ERROR: musl toolchain not found"; \
@@ -85,8 +85,8 @@ all-toolchains: check-dependencies
 	fi
 	@echo ""
 	@echo "$(BLUE)[2/2]$(NC) Building glibc toolchain..."
-	./scripts/build_toolchain.sh $(ARCH) gnu
-	@if [ -f "$(ARTIFACTS_DIR)/$(ARCH)-gnu/bin/$(ARCH)-linux-gnu-gcc" ]; then \
+	LOG_TO_FILE=1 ./scripts/build_toolchain.sh $(ARCH) gnu
+	@if [ -f "$(ARTIFACTS_DIR)/toolchain/$(ARCH)-gnu/bin/$(ARCH)-linux-gnu-gcc" ]; then \
 		echo "$(GREEN)[✓]$(NC) glibc toolchain built successfully"; \
 	else \
 		echo "$(RED)[✗]$(NC) ERROR: glibc toolchain not found"; \
@@ -96,14 +96,15 @@ all-toolchains: check-dependencies
 	@echo "$(GREEN)[✓]$(NC) All toolchains built successfully"
 	@echo ""
 	@echo "$(BLUE)[Summary]$(NC)"
-	@echo "  musl:  $(ARTIFACTS_DIR)/$(ARCH)-musl/bin/$(ARCH)-linux-musl-gcc"
-	@echo "  glibc: $(ARTIFACTS_DIR)/$(ARCH)-gnu/bin/$(ARCH)-linux-gnu-gcc"
+	@echo "  musl:  $(ARTIFACTS_DIR)/toolchain/$(ARCH)-musl/bin/$(ARCH)-linux-musl-gcc"
+	@echo "  glibc: $(ARTIFACTS_DIR)/toolchain/$(ARCH)-gnu/bin/$(ARCH)-linux-gnu-gcc"
 
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf $(BUILD_DIR)
 	@rm -rf packages/downloads
+	@rm -rf artifacts/
 	@echo "Build artifacts and packages cleaned"
 
 # Clean all artifacts including built toolchains
@@ -122,7 +123,7 @@ clean-all: clean
 # Verify toolchain build (includes testing)
 verify: toolchain
 	@echo "Verifying $(TOOLCHAIN) toolchain..."
-	@./scripts/verify_toolchain.sh $(ARCH) $(TOOLCHAIN) $(ARTIFACTS_DIR)
+	@LOG_TO_FILE=1 ./scripts/verify_toolchain.sh $(ARCH) $(TOOLCHAIN) $(ARTIFACTS_DIR)
 	@echo "Toolchain verification complete"
 
 # =============================================================================
@@ -132,7 +133,7 @@ verify: toolchain
 # Download packages from forge-packages
 download-packages:
 	@echo "Downloading packages from forge-packages..."
-	@./scripts/download_packages.sh
+	@LOG_TO_FILE=1 ./scripts/download_packages.sh
 	@echo "Package download complete"
 
 # =============================================================================
@@ -143,7 +144,7 @@ download-packages:
 # Reads version from build.json, creates minimal archives, and uploads
 # Usage: make release
 release:
-	@./scripts/create_release.sh
+	@LOG_TO_FILE=1 ./scripts/create_release.sh
 
 # =============================================================================
 # DEPENDENCY CHECKS

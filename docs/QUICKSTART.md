@@ -23,7 +23,7 @@ make toolchain TOOLCHAIN=gnu  # Build glibc
 make verify
 
 # 5. Use toolchain
-export PATH="$(pwd)/artifacts/aarch64-musl/bin:$PATH"
+export PATH="$(pwd)/artifacts/toolchain/aarch64-musl/bin:$PATH"
 aarch64-linux-musl-gcc --version
 ```
 
@@ -70,4 +70,5 @@ make download-packages
 ```
 
 See main [README](../README.md) for more details.
+
 
