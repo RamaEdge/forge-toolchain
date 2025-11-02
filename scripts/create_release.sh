@@ -181,21 +181,14 @@ for toolchain in "${TOOLCHAINS[@]}"; do
     ARCHIVE_SIZE=$(du -h "$ARCHIVE_PATH" | cut -f1)
     log_success "  Archive created: $ARCHIVE_NAME ($ARCHIVE_SIZE)"
     
-    # Generate checksums from archive contents
-    log_info "  Generating checksums from archive contents..."
-    TEMP_CHECKSUM_DIR=$(mktemp -d)
-    if ! tar -xzf "$ARCHIVE_PATH" -C "$TEMP_CHECKSUM_DIR"; then
-        log_error "Failed to extract archive for checksum generation"
-        rm -rf "$TEMP_CHECKSUM_DIR"
-        cd "$PROJECT_ROOT"
+    # Generate checksum for archive
+    log_info "  Generating checksum..."
+    cd "$PROJECT_ROOT"
+    if ! sha256sum "$ARCHIVE_PATH" > "$RELEASES_DIR/${ARCHIVE_NAME}.sha256"; then
+        log_error "Failed to generate checksum for archive"
         exit 1
     fi
-    
-    cd "$TEMP_CHECKSUM_DIR"
-    find . -type f -exec sha256sum {} \; | sort > "$RELEASES_DIR/${toolchain}-${ARCH}-v${VERSION}-SHA256SUMS.txt"
-    cd "$PROJECT_ROOT"
-    rm -rf "$TEMP_CHECKSUM_DIR"
-    log_success "  Checksums generated"
+    log_success "  Checksum generated: ${ARCHIVE_NAME}.sha256"
 done
 
 echo ""
@@ -274,11 +267,11 @@ ${ARCH}-linux-gnu-gcc -o program program.c
 
 ## Verification
 
-Verify checksums:
+Verify archive checksums:
 
 \`\`\`bash
-sha256sum -c musl-${ARCH}-v${VERSION}-SHA256SUMS.txt
-sha256sum -c gnu-${ARCH}-v${VERSION}-SHA256SUMS.txt
+sha256sum -c musl-${ARCH}-v${VERSION}.tar.gz.sha256
+sha256sum -c gnu-${ARCH}-v${VERSION}.tar.gz.sha256
 \`\`\`
 
 ## Usage with ForgeOS
@@ -309,9 +302,9 @@ cd "$PROJECT_ROOT"
 
 # Collect all files to upload
 UPLOAD_FILES=("$RELEASES_DIR"/musl-${ARCH}-v${VERSION}.tar.gz \
-              "$RELEASES_DIR"/musl-${ARCH}-v${VERSION}-SHA256SUMS.txt \
+              "$RELEASES_DIR"/musl-${ARCH}-v${VERSION}.tar.gz.sha256 \
               "$RELEASES_DIR"/gnu-${ARCH}-v${VERSION}.tar.gz \
-              "$RELEASES_DIR"/gnu-${ARCH}-v${VERSION}-SHA256SUMS.txt \
+              "$RELEASES_DIR"/gnu-${ARCH}-v${VERSION}.tar.gz.sha256 \
               "TOOLCHAIN_RELEASE_NOTES.md")
 
 # Validate all files exist
