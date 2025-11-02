@@ -1,7 +1,7 @@
 #!/bin/bash
 # ForgeOS Toolchain Release Creation Script
-# Creates a GitHub release with minimal toolchain archives (both musl and gnu)
-# Only essential files (bin/ and sysroot/) are included
+# Creates a GitHub release with complete toolchain archives (both musl and gnu)
+# All files from artifacts/toolchain/{arch}-{toolchain}/ are included
 # Usage: create_release.sh [VERSION] [--arch ARCH] [--no-cleanup] [--no-build]
 
 set -uo pipefail
@@ -145,19 +145,8 @@ if [[ "$BUILD" == true ]]; then
     echo ""
 fi
 
-# Create minimal archives for each toolchain
+# Create archives for each toolchain
 ARTIFACTS_DIR="$PROJECT_ROOT/artifacts"
-
-# Track temp directories for cleanup
-TEMP_DIRS=()
-cleanup_temp_dirs() {
-    for temp_dir in "${TEMP_DIRS[@]}"; do
-        if [[ -d "$temp_dir" ]]; then
-            rm -rf "$temp_dir"
-        fi
-    done
-}
-trap 'cleanup_temp_dirs' EXIT
 
 for toolchain in "${TOOLCHAINS[@]}"; do
     log_info "Processing $toolchain toolchain..."
@@ -169,40 +158,7 @@ for toolchain in "${TOOLCHAINS[@]}"; do
         exit 1
     fi
     
-    # Create temporary directory for minimal archive
-    TEMP_DIR=$(mktemp -d)
-    TEMP_DIRS+=("$TEMP_DIR")
-    
-    # Copy only essential files (bin and sysroot)
-    log_info "  Copying essential files..."
-    mkdir -p "$TEMP_DIR/bin"
-    mkdir -p "$TEMP_DIR/${ARCH}-linux-${toolchain}"
-    
-    # Copy all binaries from bin/
-    if ! cp -r "$OUTPUT_DIR/bin/"* "$TEMP_DIR/bin/" 2>/dev/null; then
-        log_error "Failed to copy bin directory"
-        exit 1
-    fi
-    
-    # Verify files were copied
-    if [[ -z "$(find "$TEMP_DIR/bin" -type f)" ]]; then
-        log_error "No files copied to bin directory"
-        exit 1
-    fi
-    
-    # Copy sysroot (C library, headers, essential libs)
-    if ! cp -r "$OUTPUT_DIR/${ARCH}-linux-${toolchain}/"* "$TEMP_DIR/${ARCH}-linux-${toolchain}/" 2>/dev/null; then
-        log_error "Failed to copy sysroot directory"
-        exit 1
-    fi
-    
-    # Verify sysroot files were copied
-    if [[ -z "$(find "$TEMP_DIR/${ARCH}-linux-${toolchain}" -type f)" ]]; then
-        log_error "No files copied to sysroot directory"
-        exit 1
-    fi
-    
-    # Create release archive (minimal)
+    # Create release archive with flattened structure
     ARCHIVE_NAME="${toolchain}-${ARCH}-v${VERSION}.tar.gz"
     ARCHIVE_PATH="$RELEASES_DIR/$ARCHIVE_NAME"
     
@@ -213,21 +169,32 @@ for toolchain in "${TOOLCHAINS[@]}"; do
         rm -f "$ARCHIVE_PATH"
     fi
     
-    cd "$TEMP_DIR"
-    if ! tar -czf "$ARCHIVE_PATH" .; then
+    # Archive directly from parent directory to create flattened structure
+    # This creates an archive that extracts to aarch64-musl/ or aarch64-gnu/
+    cd "$(dirname "$OUTPUT_DIR")"
+    if ! tar -czf "$ARCHIVE_PATH" "${ARCH}-${toolchain}"; then
         log_error "Failed to create archive: $ARCHIVE_PATH"
+        cd "$PROJECT_ROOT"
         exit 1
     fi
-    cd - > /dev/null
     
     ARCHIVE_SIZE=$(du -h "$ARCHIVE_PATH" | cut -f1)
     log_success "  Archive created: $ARCHIVE_NAME ($ARCHIVE_SIZE)"
     
-    # Generate checksums from original artifact structure
-    log_info "  Generating checksums..."
-    cd "$OUTPUT_DIR"
-    find . -type f -exec sha256sum {} \; > "$RELEASES_DIR/${toolchain}-${ARCH}-v${VERSION}-SHA256SUMS.txt"
-    cd - > /dev/null
+    # Generate checksums from archive contents
+    log_info "  Generating checksums from archive contents..."
+    TEMP_CHECKSUM_DIR=$(mktemp -d)
+    if ! tar -xzf "$ARCHIVE_PATH" -C "$TEMP_CHECKSUM_DIR"; then
+        log_error "Failed to extract archive for checksum generation"
+        rm -rf "$TEMP_CHECKSUM_DIR"
+        cd "$PROJECT_ROOT"
+        exit 1
+    fi
+    
+    cd "$TEMP_CHECKSUM_DIR"
+    find . -type f -exec sha256sum {} \; | sort > "$RELEASES_DIR/${toolchain}-${ARCH}-v${VERSION}-SHA256SUMS.txt"
+    cd "$PROJECT_ROOT"
+    rm -rf "$TEMP_CHECKSUM_DIR"
     log_success "  Checksums generated"
 done
 
@@ -268,12 +235,14 @@ Complete cross-compilation toolchains for ForgeOS edge Linux distribution.
 
 ## Archive Contents
 
-Each archive contains only essential files for cross-compilation:
+Each archive contains the complete toolchain:
 
-- \`bin/\` - Compiler binaries (gcc, g++, ld, as, ar, strip, etc.)
-- \`<target>/\` - C library, headers, and sysroot libraries
+- \`${ARCH}-${toolchain}/bin/\` - Compiler binaries (gcc, g++, ld, as, ar, strip, etc.)
+- \`${ARCH}-${toolchain}/libexec/\` - Internal compiler tools and plugins
+- \`${ARCH}-${toolchain}/share/\` - Documentation and locale data
+- \`${ARCH}-${toolchain}/${ARCH}-linux-${toolchain}/\` - C library, headers, and sysroot libraries
 
-**Space savings**: Excluded libexec/ (~770 MB) and share/ (~21 MB) directories.
+The archive extracts to a single directory (\`${ARCH}-${toolchain}/\`) with a flattened structure.
 
 ## Installation
 
@@ -284,7 +253,7 @@ Extract and use the toolchain:
 tar -xzf musl-${ARCH}-v${VERSION}.tar.gz -C /opt/toolchain/
 
 # Add to PATH
-export PATH=/opt/toolchain/bin:\$PATH
+export PATH=/opt/toolchain/${ARCH}-musl/bin:\$PATH
 
 # Cross-compile with musl
 ${ARCH}-linux-musl-gcc -o program program.c
@@ -297,7 +266,7 @@ For glibc toolchain:
 tar -xzf gnu-${ARCH}-v${VERSION}.tar.gz -C /opt/toolchain/
 
 # Add to PATH
-export PATH=/opt/toolchain/bin:\$PATH
+export PATH=/opt/toolchain/${ARCH}-gnu/bin:\$PATH
 
 # Cross-compile with glibc
 ${ARCH}-linux-gnu-gcc -o program program.c

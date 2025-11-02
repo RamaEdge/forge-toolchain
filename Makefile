@@ -129,7 +129,7 @@ download-packages:
 # =============================================================================
 
 # Create and upload release archive to GitHub
-# Reads version from build.json, creates minimal archives, and uploads
+# Reads version from build.json, creates complete toolchain archives, and uploads
 # Usage: make release
 release:
 	@LOG_TO_FILE=1 ./scripts/create_release.sh
