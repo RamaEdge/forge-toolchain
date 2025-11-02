@@ -44,7 +44,7 @@ This will:
 - Read version from `build.json`
 - Check if release tag already exists
 - Extract package versions from `packages/extracted/`
-- Create release archives (`bin/` and `sysroot/` only)
+- Create release archives (complete toolchain with all files)
 - Generate release notes with package versions
 - Create GitHub release
 - Upload all artifacts
@@ -62,13 +62,19 @@ gh release view v0.1.1
 ## Release Contents
 
 Each release includes:
-- `aarch64-musl-v0.1.1.tar.gz` - musl toolchain
-- `aarch64-gnu-v0.1.1.tar.gz` - glibc toolchain  
+- `musl-aarch64-v0.1.1.tar.gz` - Complete musl toolchain
+- `gnu-aarch64-v0.1.1.tar.gz` - Complete glibc toolchain  
+- `musl-aarch64-v0.1.1-SHA256SUMS.txt` - Checksums for musl toolchain
+- `gnu-aarch64-v0.1.1-SHA256SUMS.txt` - Checksums for glibc toolchain
 - `TOOLCHAIN_RELEASE_NOTES.md` - Release documentation
 
-Archives contain only:
-- `bin/` - Toolchain binaries
-- `aarch64-linux-{musl,gnu}/` - Target sysroot
+Archives contain complete toolchain with flattened structure:
+- `aarch64-{musl|gnu}/bin/` - Toolchain binaries (gcc, g++, ld, as, ar, strip, etc.)
+- `aarch64-{musl|gnu}/libexec/` - Internal compiler tools and plugins
+- `aarch64-{musl|gnu}/share/` - Documentation and locale data
+- `aarch64-{musl|gnu}/aarch64-linux-{musl|gnu}/` - C library, headers, and sysroot libraries
+
+The archive extracts to a single directory with the flattened structure.
 
 ## Release Notes
 
